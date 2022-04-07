@@ -31,6 +31,7 @@ from detectron2.data import detection_utils as utils
 
 from data.Kitti import load_dataset_detectron2
 from data.Kittidataloader import KittiDatasetMapper
+from detectron2_custom_model import CustomROIHeads
 
 import json
 
@@ -99,6 +100,7 @@ def annotations_to_instances(annos, image_size, mask_format="polygon"):
     target.gt_boxes = Boxes(boxes)
     device = bases.device if isinstance(bases, torch.Tensor) else torch.device("cpu")
     bases = torch.as_tensor(bases, dtype=torch.float32, device=device)
+    # print("bases: {}".format(bases.shape))
     if bases.numel() == 0:
         # Use reshape, so we don't end up creating a new tensor that does not depend on
         # the inputs (and consequently confuses jit)
@@ -156,16 +158,16 @@ DatasetCatalog.register("Kitti_" + d, lambda: load_dataset_detectron2())
 
 from detectron2.engine import DefaultTrainer
 cfg = get_cfg()
-cfg.merge_from_file(model_zoo.get_config_file("COCO-Detection/faster_rcnn_R_50_FPN_1x.yaml"))
+# cfg.merge_from_file(model_zoo.get_config_file("COCO-Detection/faster_rcnn_R_50_FPN_1x.yaml"))
 cfg.merge_from_file("configs/base_detection_faster_rcnn.yaml")
 cfg.DATASETS.TRAIN = ("Kitti_train",)
 cfg.DATASETS.TEST = ()
 cfg.DATALOADER.NUM_WORKERS = 0
 cfg.MODEL.WEIGHTS = model_zoo.get_checkpoint_url("COCO-Detection/faster_rcnn_R_50_FPN_1x.yaml")  # Let training initialize from model zoo
 cfg.SOLVER.IMS_PER_BATCH = 4
-cfg.SOLVER.BASE_LR = 0.00025  # pick a good LR
-cfg.SOLVER.MAX_ITER = 100    # 300 iterations seems good enough for this toy dataset; you will need to train longer for a practical dataset
-cfg.SOLVER.STEPS = []        # do not decay learning rate
+# cfg.SOLVER.BASE_LR = 0.00025  # pick a good LR
+# cfg.SOLVER.MAX_ITER = 1000    # 300 iterations seems good enough for this toy dataset; you will need to train longer for a practical dataset
+# cfg.SOLVER.STEPS = []        # do not decay learning rate
 cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE = 16   # faster, and good enough for this toy dataset (default: 512)
 cfg.MODEL.ROI_HEADS.NUM_CLASSES = 9  # only has one class (ballon). (see https://detectron2.readthedocs.io/tutorials/datasets.html#update-the-config-for-new-datasets)
 # NOTE: this config means the number of classes, but a few popular unofficial tutorials incorrect uses num_classes+1 here.
