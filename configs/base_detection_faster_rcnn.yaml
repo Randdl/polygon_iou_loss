@@ -39,7 +39,7 @@ DATASETS:
   TRAIN: ("Kitti_train",)
   TEST: ()
 SOLVER:
-  IMS_PER_BATCH: 4
+  IMS_PER_BATCH: 16
   BASE_LR: 0.00025
   STEPS: (60000, 80000)
   MAX_ITER: 90000
@@ -48,4 +48,4 @@ INPUT:
 VERSION: 2
 DATALOADER:
   # proposals are part of the dataset_dicts, and take a lot of RAM
-  NUM_WORKERS: 0
+  NUM_WORKERS: 5

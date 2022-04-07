@@ -376,8 +376,8 @@ def load_dataset_detectron2(root="..", train=True):
 
     dataset_dicts = []
     for idx in range(len(images)):
-        if idx == 200:
-            break
+        # if idx == 200:
+        #     break
         if idx % 100 == 0:
             print("{} loaded".format(idx))
         record = {}
