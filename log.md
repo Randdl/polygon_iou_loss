@@ -1,0 +1,1 @@
+1. loss_rpn_loc goes to inf. change learning rate, use giou, not l1_loss, drop small boxes

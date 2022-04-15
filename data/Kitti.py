@@ -334,6 +334,7 @@ class Kitti(VisionDataset):
             base = target[idx]['base']
             bbox = target[idx]['bbox']
             corners = target[idx]['corners']
+            print(target[idx]['type'])
             print(bbox)
             print(base)
             plt.scatter(x=corners[0, :], y=corners[1, :], s=40, color="w")
@@ -376,8 +377,8 @@ def load_dataset_detectron2(root="..", train=True):
 
     dataset_dicts = []
     for idx in range(len(images)):
-        # if idx == 200:
-        #     break
+        if idx == 4000:
+            break
         if idx % 100 == 0:
             print("{} loaded".format(idx))
         record = {}
@@ -402,6 +403,15 @@ def load_dataset_detectron2(root="..", train=True):
         with open(targets[idx]) as inp:
             content = csv.reader(inp, delimiter=" ")
             for line in content:
+                if float(line[4]) < 0 or float(line[5]) < 0 or float(line[6]) < 0 or float(line[7]) < 0:
+                    print([float(x) for x in line[4:8]])
+                if float(line[6]) - float(line[4]) < 0 or float(line[7]) - float(line[5]) < 0:
+                    # print([float(x) for x in line[4:8]])
+                    continue
+                if abs(float(line[6]) - float(line[4])) < 8 or abs(float(line[7]) - float(line[5])) < 8:
+                    # print([float(x) for x in line[4:8]])
+                    # print("discard box at {}".format(idx))
+                    continue
                 base_3Dto2D, _, _, _ = computeBox3D([float(x) for x in line[8:15]], P2_rect)
                 obj = {
                     "iscrowd": 0,

@@ -10,7 +10,10 @@ MODEL:
   ANCHOR_GENERATOR:
     SIZES: [[32], [64], [128], [256], [512]]  # One size for each in feature map
     ASPECT_RATIOS: [[0.5, 1.0, 2.0]]  # Three aspect ratios (same for all in feature maps)
+  PROPOSAL_GENERATOR:
+    NAME: "RPN"
   RPN:
+    HEAD_NAME: "StandardRPNHead"
     IN_FEATURES: ["p2", "p3", "p4", "p5", "p6"]
     PRE_NMS_TOPK_TRAIN: 2000  # Per FPN level
     PRE_NMS_TOPK_TEST: 1000  # Per FPN level
@@ -19,6 +22,8 @@ MODEL:
     # which is approximately 1000 proposals per-image since the default batch size for FPN is 2.
     POST_NMS_TOPK_TRAIN: 1000
     POST_NMS_TOPK_TEST: 1000
+#    BBOX_REG_LOSS_TYPE: "giou"
+    SMOOTH_L1_BETA: 0.5
   ROI_HEADS:
     NAME: "CustomROIHeads"
     IN_FEATURES: ["p2", "p3", "p4", "p5"]
