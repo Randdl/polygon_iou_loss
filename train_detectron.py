@@ -121,7 +121,7 @@ def mapper(dataset_dict):
     # See "Data Augmentation" tutorial for details usage
     auginput = T.AugInput(image)
     transform = T.Resize((370, 1224))(auginput)
-    image = torch.from_numpy(auginput.image.transpose(2, 0, 1))
+    image = torch.tensor(auginput.image.transpose(2, 0, 1))
     annos = [
         transform_instance_annotations(annotation, [transform], image.shape[1:])
         for annotation in dataset_dict.pop("annotations")

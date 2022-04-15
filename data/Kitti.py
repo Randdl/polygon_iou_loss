@@ -403,15 +403,16 @@ def load_dataset_detectron2(root="..", train=True):
         with open(targets[idx]) as inp:
             content = csv.reader(inp, delimiter=" ")
             for line in content:
-                if float(line[4]) < 0 or float(line[5]) < 0 or float(line[6]) < 0 or float(line[7]) < 0:
-                    print([float(x) for x in line[4:8]])
+                # if float(line[4]) < 1 or float(line[5]) < 1 or float(line[6]) < 1 or float(line[7]) < 1:
+                #     print([float(x) for x in line[4:8]])
+                    # continue
                 if float(line[6]) - float(line[4]) < 0 or float(line[7]) - float(line[5]) < 0:
                     # print([float(x) for x in line[4:8]])
                     continue
-                if abs(float(line[6]) - float(line[4])) < 8 or abs(float(line[7]) - float(line[5])) < 8:
+                # if abs(float(line[6]) - float(line[4])) < 8 or abs(float(line[7]) - float(line[5])) < 8:
                     # print([float(x) for x in line[4:8]])
                     # print("discard box at {}".format(idx))
-                    continue
+                    # continue
                 base_3Dto2D, _, _, _ = computeBox3D([float(x) for x in line[8:15]], P2_rect)
                 obj = {
                     "iscrowd": 0,
@@ -420,6 +421,10 @@ def load_dataset_detectron2(root="..", train=True):
                     "category_id": dic[line[0]],
                     "base": base_3Dto2D,
                 }
+                if float(line[4]) < 1:
+                    obj["bbox"][0] = 1
+                if float(line[5]) < 1:
+                    obj["bbox"][1] = 1
                 objs.append(obj)
         record["annotations"] = objs
         dataset_dicts.append(record)
