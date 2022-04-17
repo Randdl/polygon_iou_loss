@@ -374,6 +374,7 @@ def load_dataset_detectron2(root="..", train=True):
                     dic[line[0]] = indexx
                     indexx += 1
     print("dic size: ", len(dic))
+    shortest_width = 10000
 
     dataset_dicts = []
     for idx in range(len(images)):
@@ -389,6 +390,9 @@ def load_dataset_detectron2(root="..", train=True):
         record["image_id"] = idx
         record["height"] = height
         record["width"] = width
+        if width < shortest_width:
+            shortest_width = width
+            print(shortest_width)
 
         objs = []
 
@@ -406,8 +410,13 @@ def load_dataset_detectron2(root="..", train=True):
                 # if float(line[4]) < 1 or float(line[5]) < 1 or float(line[6]) < 1 or float(line[7]) < 1:
                 #     print([float(x) for x in line[4:8]])
                     # continue
-                if float(line[6]) - float(line[4]) < 0 or float(line[7]) - float(line[5]) < 0:
-                    # print([float(x) for x in line[4:8]])
+                if float(line[6]) - float(line[4]) < 1 or float(line[7]) - float(line[5]) < 1:
+                    print("discard")
+                    print([float(x) for x in line[4:8]])
+                    continue
+                if float(line[4]) > 1222:
+                    print("discard x out of bound")
+                    print([float(x) for x in line[4:8]])
                     continue
                 # if abs(float(line[6]) - float(line[4])) < 8 or abs(float(line[7]) - float(line[5])) < 8:
                     # print([float(x) for x in line[4:8]])
