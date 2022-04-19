@@ -422,9 +422,9 @@ class CustomFastRCNNOutputLayers(FastRCNNOutputLayers):
         losses = {
             "loss_cls": cross_entropy(scores, gt_classes, reduction="mean"),
             # to reverse
-            "loss_base_reg": self.base_reg_loss(
-                proposal_boxes, gt_bases, pred_bases, gt_classes
-            ),
+            # "loss_base_reg": self.base_reg_loss(
+            #     proposal_boxes, gt_bases, pred_bases, gt_classes
+            # ),
             "loss_box_reg": self.box_reg_loss(
                 proposal_boxes, gt_boxes, proposal_deltas, gt_classes
             ),

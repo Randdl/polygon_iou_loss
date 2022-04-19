@@ -374,11 +374,12 @@ def load_dataset_detectron2(root="..", train=True):
                     dic[line[0]] = indexx
                     indexx += 1
     print("dic size: ", len(dic))
+    print(dic)
     shortest_width = 10000
 
     dataset_dicts = []
     for idx in range(len(images)):
-        if idx == 4000:
+        if idx == 1000:
             break
         if idx % 100 == 0:
             print("{} loaded".format(idx))
@@ -393,6 +394,9 @@ def load_dataset_detectron2(root="..", train=True):
         if width < shortest_width:
             shortest_width = width
             print(shortest_width)
+        if not train:
+            dataset_dicts.append(record)
+            continue
 
         objs = []
 
@@ -418,10 +422,10 @@ def load_dataset_detectron2(root="..", train=True):
                     print("discard x out of bound")
                     print([float(x) for x in line[4:8]])
                     continue
-                # if abs(float(line[6]) - float(line[4])) < 8 or abs(float(line[7]) - float(line[5])) < 8:
+                if abs(float(line[6]) - float(line[4])) < 8 or abs(float(line[7]) - float(line[5])) < 8:
                     # print([float(x) for x in line[4:8]])
                     # print("discard box at {}".format(idx))
-                    # continue
+                    continue
                 base_3Dto2D, _, _, _ = computeBox3D([float(x) for x in line[8:15]], P2_rect)
                 obj = {
                     "iscrowd": 0,

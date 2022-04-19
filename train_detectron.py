@@ -153,6 +153,7 @@ class Trainer(DefaultTrainer):
 d="train"
 e=".."
 DatasetCatalog.register("Kitti_" + d, lambda: load_dataset_detectron2())
+DatasetCatalog.register("Kitti_test", lambda: load_dataset_detectron2(train=False))
 # MetadataCatalog.get("Kitti_" + d).set(thing_classes=["balloon"])
 # balloon_metadata = MetadataCatalog.get("balloon_train")
 
