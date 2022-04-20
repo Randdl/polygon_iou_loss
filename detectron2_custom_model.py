@@ -210,7 +210,7 @@ def _dense_base_regression_loss(
         loss_box_reg = torch.pow((pred_bases - gt_bases), 2).sum().sqrt()
     else:
         raise ValueError(f"Invalid dense box regression loss type '{box_reg_loss_type}'")
-    return loss_box_reg / 200
+    return loss_box_reg / 600
 
 
 class CustomFastRCNNOutputLayers(FastRCNNOutputLayers):
@@ -422,9 +422,9 @@ class CustomFastRCNNOutputLayers(FastRCNNOutputLayers):
         losses = {
             "loss_cls": cross_entropy(scores, gt_classes, reduction="mean"),
             # to reverse
-            # "loss_base_reg": self.base_reg_loss(
-            #     proposal_boxes, gt_bases, pred_bases, gt_classes
-            # ),
+            "loss_base_reg": self.base_reg_loss(
+                proposal_boxes, gt_bases, pred_bases, gt_classes
+            ),
             "loss_box_reg": self.box_reg_loss(
                 proposal_boxes, gt_boxes, proposal_deltas, gt_classes
             ),
