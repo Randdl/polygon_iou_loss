@@ -19,6 +19,8 @@ from detectron2.modeling.roi_heads.box_head import build_box_head
 from detectron2.modeling.roi_heads.fast_rcnn import FastRCNNOutputLayers
 from detectron2.modeling.proposal_generator.rpn import RPN, PROPOSAL_GENERATOR_REGISTRY
 
+from new_model import NewFastRCNNOutputLayers
+
 
 def _log_classification_stats(pred_logits, gt_classes, prefix="fast_rcnn"):
     """
@@ -521,7 +523,8 @@ class CustomROIHeads(StandardROIHeads):
         box_head = build_box_head(
             cfg, ShapeSpec(channels=in_channels, height=pooler_resolution, width=pooler_resolution)
         )
-        box_predictor = CustomFastRCNNOutputLayers(cfg, box_head.output_shape)
+        # modified
+        box_predictor = NewFastRCNNOutputLayers(cfg, box_head.output_shape)
         return {
             "box_in_features": in_features,
             "box_pooler": box_pooler,
