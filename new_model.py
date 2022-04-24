@@ -14,7 +14,6 @@ from detectron2.utils.events import get_event_storage
 
 __all__ = ["fast_rcnn_inference", "FastRCNNOutputLayers"]
 
-
 logger = logging.getLogger(__name__)
 
 """
@@ -44,12 +43,12 @@ Naming convention:
 
 
 def fast_rcnn_inference(
-    boxes: List[torch.Tensor],
-    scores: List[torch.Tensor],
-    image_shapes: List[Tuple[int, int]],
-    score_thresh: float,
-    nms_thresh: float,
-    topk_per_image: int,
+        boxes: List[torch.Tensor],
+        scores: List[torch.Tensor],
+        image_shapes: List[Tuple[int, int]],
+        score_thresh: float,
+        nms_thresh: float,
+        topk_per_image: int,
 ):
     """
     Call `fast_rcnn_inference_single_image` for all images.
@@ -86,12 +85,12 @@ def fast_rcnn_inference(
 
 
 def fast_rcnn_inference_single_image(
-    boxes,
-    scores,
-    image_shape: Tuple[int, int],
-    score_thresh: float,
-    nms_thresh: float,
-    topk_per_image: int,
+        boxes,
+        scores,
+        image_shape: Tuple[int, int],
+        score_thresh: float,
+        nms_thresh: float,
+        topk_per_image: int,
 ):
     """
     Single-image inference. Return bounding-box detection results by thresholding
@@ -148,13 +147,13 @@ class FastRCNNOutputs:
     """
 
     def __init__(
-        self,
-        box2box_transform,
-        pred_class_logits,
-        pred_proposal_deltas,
-        proposals,
-        smooth_l1_beta=0.0,
-        box_reg_loss_type="smooth_l1",
+            self,
+            box2box_transform,
+            pred_class_logits,
+            pred_proposal_deltas,
+            proposals,
+            smooth_l1_beta=0.0,
+            box_reg_loss_type="smooth_l1",
     ):
         """
         Args:
@@ -182,7 +181,7 @@ class FastRCNNOutputs:
         self.box2box_transform = box2box_transform
         self.num_preds_per_image = [len(p) for p in proposals]
         self.pred_class_logits = pred_class_logits
-        self.pred_proposal_deltas = pred_proposal_deltas
+        self.pred_proposal_deltas, self.pred_bases = pred_proposal_deltas
         self.smooth_l1_beta = smooth_l1_beta
         self.box_reg_loss_type = box_reg_loss_type
 
@@ -201,6 +200,8 @@ class FastRCNNOutputs:
                 self.gt_boxes = box_type.cat([p.gt_boxes for p in proposals])
                 assert proposals[0].has("gt_classes")
                 self.gt_classes = cat([p.gt_classes for p in proposals], dim=0)
+                assert proposals[0].has("gt_bases")
+                self.gt_bases = cat([p.gt_bases for p in proposals], dim=0)
         else:
             self.proposals = Boxes(torch.zeros(0, 4, device=self.pred_proposal_deltas.device))
         self._no_instances = len(self.proposals) == 0  # no instances found
@@ -280,6 +281,12 @@ class FastRCNNOutputs:
             gt_proposal_deltas = self.box2box_transform.get_deltas(
                 self.proposals.tensor, self.gt_boxes.tensor
             )
+            # print(self.gt_boxes.tensor.shape)
+            # print(gt_proposal_deltas.shape)
+            # print("boxes: ", gt_class_cols)
+            # print(fg_inds[:, None])
+            # print(self.pred_proposal_deltas)
+            # print(self.pred_proposal_deltas[fg_inds[:, None], gt_class_cols])
             loss_box_reg = smooth_l1_loss(
                 self.pred_proposal_deltas[fg_inds[:, None], gt_class_cols],
                 gt_proposal_deltas[fg_inds],
@@ -309,6 +316,72 @@ class FastRCNNOutputs:
         loss_box_reg = loss_box_reg / self.gt_classes.numel()
         return loss_box_reg
 
+    def base_reg_loss(self):
+        """
+        Compute the smooth L1 loss for box regression.
+
+        Returns:
+            scalar Tensor
+        """
+        if self._no_instances:
+            return 0.0 * self.pred_bases.sum()
+
+        # print(self.gt_bases.shape)
+        box_dim = self.gt_bases.size(1)  # 4 or 5
+        cls_agnostic_bbox_reg = self.pred_bases.size(1) == box_dim
+        device = self.pred_bases.device
+
+        bg_class_ind = self.pred_class_logits.shape[1] - 1
+
+        # Box delta loss is only computed between the prediction for the gt class k
+        # (if 0 <= k < bg_class_ind) and the target; there is no loss defined on predictions
+        # for non-gt classes and background.
+        # Empty fg_inds produces a valid loss of zero as long as the size_average
+        # arg to smooth_l1_loss is False (otherwise it uses torch.mean internally
+        # and would produce a nan loss).
+        fg_inds = nonzero_tuple((self.gt_classes >= 0) & (self.gt_classes < bg_class_ind))[0]
+        if cls_agnostic_bbox_reg:
+            # pred_proposal_deltas only corresponds to foreground class for agnostic
+            gt_class_cols = torch.arange(box_dim, device=device)
+        else:
+            fg_gt_classes = self.gt_classes[fg_inds]
+            # pred_proposal_deltas for class k are located in columns [b * k : b * k + b],
+            # where b is the dimension of box representation (4 or 5)
+            # Note that compared to Detectron1,
+            # we do not perform bounding box regression for background classes.
+            gt_class_cols = box_dim * fg_gt_classes[:, None] + torch.arange(box_dim, device=device)
+
+        if self.box_reg_loss_type == "smooth_l1":
+            # print("bases: ", gt_class_cols)
+            loss_base_reg = smooth_l1_loss(
+                self.pred_bases[fg_inds[:, None], gt_class_cols],
+                self.gt_bases[fg_inds],
+                self.smooth_l1_beta,
+                reduction="sum",
+            )
+        elif self.box_reg_loss_type == "giou":
+            loss_base_reg = giou_loss(
+                self._predict_boxes()[fg_inds[:, None], gt_class_cols],
+                self.gt_boxes.tensor[fg_inds],
+                reduction="sum",
+            )
+        else:
+            raise ValueError(f"Invalid bbox reg loss type '{self.box_reg_loss_type}'")
+
+        # The loss is normalized using the total number of regions (R), not the number
+        # of foreground regions even though the box regression loss is only defined on
+        # foreground regions. Why? Because doing so gives equal training influence to
+        # each foreground example. To see how, consider two different minibatches:
+        #  (1) Contains a single foreground region
+        #  (2) Contains 100 foreground regions
+        # If we normalize by the number of foreground regions, the single example in
+        # minibatch (1) will be given 100 times as much influence as each foreground
+        # example in minibatch (2). Normalizing by the total number of regions, R,
+        # means that the single example in minibatch (1) and each of the 100 examples
+        # in minibatch (2) are given equal influence.
+        loss_base_reg = loss_base_reg / self.gt_classes.numel()
+        return loss_base_reg / 400
+
     def _predict_boxes(self):
         """
         Returns:
@@ -331,7 +404,8 @@ class FastRCNNOutputs:
         Returns:
             A dict of losses (scalar tensors) containing keys "loss_cls" and "loss_box_reg".
         """
-        return {"loss_cls": self.softmax_cross_entropy_loss(), "loss_box_reg": self.box_reg_loss()}
+        return {"loss_cls": self.softmax_cross_entropy_loss(), "loss_box_reg": self.box_reg_loss(),
+                "loss_base_reg": self.base_reg_loss()}
 
     def predict_boxes(self):
         """
@@ -368,18 +442,18 @@ class NewFastRCNNOutputLayers(nn.Module):
 
     @configurable
     def __init__(
-        self,
-        input_shape: ShapeSpec,
-        *,
-        box2box_transform,
-        num_classes: int,
-        test_score_thresh: float = 0.0,
-        test_nms_thresh: float = 0.5,
-        test_topk_per_image: int = 100,
-        cls_agnostic_bbox_reg: bool = False,
-        smooth_l1_beta: float = 0.0,
-        box_reg_loss_type: str = "smooth_l1",
-        loss_weight: Union[float, Dict[str, float]] = 1.0,
+            self,
+            input_shape: ShapeSpec,
+            *,
+            box2box_transform,
+            num_classes: int,
+            test_score_thresh: float = 0.0,
+            test_nms_thresh: float = 0.5,
+            test_topk_per_image: int = 100,
+            cls_agnostic_bbox_reg: bool = False,
+            smooth_l1_beta: float = 0.0,
+            box_reg_loss_type: str = "smooth_l1",
+            loss_weight: Union[float, Dict[str, float]] = 1.0,
     ):
         """
         NOTE: this interface is experimental.
@@ -410,7 +484,7 @@ class NewFastRCNNOutputLayers(nn.Module):
         box_dim = len(box2box_transform.weights)
         self.bbox_pred = Linear(input_size, num_bbox_reg_classes * box_dim)
         # modified
-        self.base_pred = nn.Linear(input_size, num_bbox_reg_classes * 6)
+        self.base_pred = nn.Linear(input_size, num_bbox_reg_classes * 8)
 
         nn.init.normal_(self.cls_score.weight, std=0.01)
         nn.init.normal_(self.bbox_pred.weight, std=0.001)
@@ -426,11 +500,11 @@ class NewFastRCNNOutputLayers(nn.Module):
         self.test_topk_per_image = test_topk_per_image
         self.box_reg_loss_type = box_reg_loss_type
         if isinstance(loss_weight, float):
-            loss_weight = {"loss_cls": loss_weight, "loss_box_reg": loss_weight}
+            loss_weight = {"loss_cls": loss_weight, "loss_box_reg": loss_weight, "loss_base_reg": loss_weight}
         self.loss_weight = loss_weight
         # modified
         for param in self.parameters():
-            param.requires_grad = False
+            param.requires_grad = True
 
     @classmethod
     def from_config(cls, cfg, input_shape):
@@ -438,14 +512,14 @@ class NewFastRCNNOutputLayers(nn.Module):
             "input_shape": input_shape,
             "box2box_transform": Box2BoxTransform(weights=cfg.MODEL.ROI_BOX_HEAD.BBOX_REG_WEIGHTS),
             # fmt: off
-            "num_classes"           : cfg.MODEL.ROI_HEADS.NUM_CLASSES,
-            "cls_agnostic_bbox_reg" : cfg.MODEL.ROI_BOX_HEAD.CLS_AGNOSTIC_BBOX_REG,
-            "smooth_l1_beta"        : cfg.MODEL.ROI_BOX_HEAD.SMOOTH_L1_BETA,
-            "test_score_thresh"     : cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST,
-            "test_nms_thresh"       : cfg.MODEL.ROI_HEADS.NMS_THRESH_TEST,
-            "test_topk_per_image"   : cfg.TEST.DETECTIONS_PER_IMAGE,
-            "box_reg_loss_type"     : cfg.MODEL.ROI_BOX_HEAD.BBOX_REG_LOSS_TYPE,
-            "loss_weight"           : {"loss_box_reg": cfg.MODEL.ROI_BOX_HEAD.BBOX_REG_LOSS_WEIGHT},
+            "num_classes": cfg.MODEL.ROI_HEADS.NUM_CLASSES,
+            "cls_agnostic_bbox_reg": cfg.MODEL.ROI_BOX_HEAD.CLS_AGNOSTIC_BBOX_REG,
+            "smooth_l1_beta": cfg.MODEL.ROI_BOX_HEAD.SMOOTH_L1_BETA,
+            "test_score_thresh": cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST,
+            "test_nms_thresh": cfg.MODEL.ROI_HEADS.NMS_THRESH_TEST,
+            "test_topk_per_image": cfg.TEST.DETECTIONS_PER_IMAGE,
+            "box_reg_loss_type": cfg.MODEL.ROI_BOX_HEAD.BBOX_REG_LOSS_TYPE,
+            "loss_weight": {"loss_box_reg": cfg.MODEL.ROI_BOX_HEAD.BBOX_REG_LOSS_WEIGHT},
             # fmt: on
         }
 
@@ -486,7 +560,8 @@ class NewFastRCNNOutputLayers(nn.Module):
         losses = FastRCNNOutputs(
             self.box2box_transform,
             scores,
-            proposal_deltas,
+            # modified
+            (proposal_deltas, pred_bases),
             proposals,
             self.smooth_l1_beta,
             self.box_reg_loss_type,
@@ -557,7 +632,7 @@ class NewFastRCNNOutputLayers(nn.Module):
         return predict_boxes.split(num_prop_per_image)
 
     def predict_boxes(
-        self, predictions: Tuple[torch.Tensor, torch.Tensor], proposals: List[Instances]
+            self, predictions: Tuple[torch.Tensor, torch.Tensor], proposals: List[Instances]
     ):
         """
         Args:
@@ -585,7 +660,7 @@ class NewFastRCNNOutputLayers(nn.Module):
         return predict_boxes.split(num_prop_per_image)
 
     def predict_probs(
-        self, predictions: Tuple[torch.Tensor, torch.Tensor], proposals: List[Instances]
+            self, predictions: Tuple[torch.Tensor, torch.Tensor], proposals: List[Instances]
     ):
         """
         Args:
