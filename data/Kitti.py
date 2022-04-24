@@ -85,7 +85,17 @@ def computeBox3D(label, P):
     corners_2D = corners_2D[:2]
     base_indices = [2, 3, 6, 7]
     base_3Dto2D = corners_2D[:, base_indices]
+    x_sort = np.argsort(base_3Dto2D[0, :])
+    first_two = base_3Dto2D[:, x_sort[2:4]]
+    y_sort_first = np.argsort(-first_two[1, :])
+    first_two = first_two[:, y_sort_first]
 
+    second_two = base_3Dto2D[:, x_sort[0:2]]
+    y_sort_second = np.argsort(second_two[1, :])
+    second_two = second_two[:, y_sort_second]
+
+    base_3Dto2D = np.concatenate((first_two, second_two), axis=1)
+    # print(base_3Dto2D)
     return base_3Dto2D, corners_2D, corners_3D, bb2d_lines_verts[:2]
 
 
@@ -337,10 +347,13 @@ class Kitti(VisionDataset):
             print(target[idx]['type'])
             print(bbox)
             print(base)
-            plt.scatter(x=corners[0, :], y=corners[1, :], s=40, color="w")
-            plt.scatter(x=base[0, :], y=base[1, :], s=40, color="r")
-            plt.scatter(x=bbox[0], y=bbox[1], s=40, color="b")
-            plt.scatter(x=bbox[2], y=bbox[3], s=40, color="b")
+            # plt.scatter(x=corners[0, :], y=corners[1, :], s=40, color="w")
+            plt.scatter(x=base[0, 0], y=base[1, 0], s=40, color="r")
+            plt.scatter(x=base[0, 1], y=base[1, 1], s=40, color="w")
+            plt.scatter(x=base[0, 2], y=base[1, 2], s=40, color="y")
+            plt.scatter(x=base[0, 3], y=base[1, 3], s=40, color="g")
+            # plt.scatter(x=bbox[0], y=bbox[1], s=40, color="b")
+            # plt.scatter(x=bbox[2], y=bbox[3], s=40, color="b")
         plt.imshow(sample['image'])
         plt.show()
 
@@ -379,8 +392,8 @@ def load_dataset_detectron2(root="..", train=True):
 
     dataset_dicts = []
     for idx in range(len(images)):
-        # if idx == 1000:
-        #     break
+        if idx == 1000:
+            break
         if idx % 100 == 0:
             print("{} loaded".format(idx))
         record = {}
