@@ -1,0 +1,72 @@
+import torch
+from detectron2.data.transforms import ResizeTransform
+from detectron2.structures import BoxMode, Instances, Boxes
+from matplotlib import pyplot as plt
+
+TORCH_VERSION = ".".join(torch.__version__.split(".")[:2])
+CUDA_VERSION = torch.__version__.split("+")[-1]
+print("torch: ", TORCH_VERSION, "; cuda: ", CUDA_VERSION)
+
+import detectron2
+from detectron2.utils.logger import setup_logger
+
+setup_logger()
+
+# import some common libraries
+import numpy as np
+import os, json, cv2, random
+
+# import some common detectron2 utilities
+from detectron2 import model_zoo
+from detectron2.config import get_cfg
+from detectron2.utils.visualizer import Visualizer
+
+import copy
+import detectron2.data.transforms as T
+import detectron2.utils.comm as comm
+from detectron2.checkpoint import DetectionCheckpointer
+from detectron2.data import DatasetMapper, MetadataCatalog, build_detection_train_loader, DatasetCatalog
+from detectron2.engine import DefaultPredictor, DefaultTrainer, default_argument_parser, default_setup, launch
+from detectron2.evaluation import CityscapesSemSegEvaluator, DatasetEvaluators, SemSegEvaluator
+from detectron2.projects.deeplab import add_deeplab_config, build_lr_scheduler
+from detectron2.data import detection_utils as utils
+
+from data.Kitti import load_dataset_detectron2
+from data.Kittidataloader import KittiDatasetMapper
+from detectron2_custom_model import CustomROIHeads
+
+import json
+
+DatasetCatalog.register("Kitti_train", lambda: load_dataset_detectron2())
+
+cfg = get_cfg()
+cfg.merge_from_file("configs/base_detection_faster_rcnn.yaml")
+cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5
+cfg.DATASETS.TRAIN = ("Kitti_train",)
+cfg.DATALOADER.NUM_WORKERS = 0
+
+predictor = DefaultPredictor(cfg)
+
+checkpointer = DetectionCheckpointer(predictor.model, save_dir="model_param")
+checkpointer.load("output/model_final.pth")
+
+# im = cv2.imread("images/000000.png")
+im = cv2.imread("images/000004.png")
+# print(im.shape)
+# plt.figure(figsize=(15, 7.5))
+# plt.imshow(im[..., ::-1])
+# plt.show()
+outputs = predictor(im[..., ::-1])
+v = Visualizer(im[:, :, ::-1], MetadataCatalog.get("Kitti_train"), scale=1.2)
+out = v.draw_instance_predictions(outputs["instances"].to("cpu"))
+print(out.get_image()[..., ::-1][..., ::-1])
+plt.figure(figsize=(20,10))
+plt.imshow(out.get_image()[..., ::-1][..., ::-1])
+bases = outputs["instances"].pred_bases.to("cpu")
+print(bases.shape)
+for idx in range(bases.shape[0]):
+    plt.scatter(x=bases[idx, 0], y=bases[idx, 1], s=40, color="r")
+    plt.scatter(x=bases[idx, 2], y=bases[idx, 3], s=40, color="r")
+    plt.scatter(x=bases[idx, 4], y=bases[idx, 5], s=40, color="r")
+    plt.scatter(x=bases[idx, 6], y=bases[idx, 7], s=40, color="r")
+plt.show()

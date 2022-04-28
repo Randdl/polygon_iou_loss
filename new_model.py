@@ -44,6 +44,7 @@ Naming convention:
 
 def fast_rcnn_inference(
         boxes: List[torch.Tensor],
+        bases: List[torch.Tensor],
         scores: List[torch.Tensor],
         image_shapes: List[Tuple[int, int]],
         score_thresh: float,
@@ -77,9 +78,9 @@ def fast_rcnn_inference(
     """
     result_per_image = [
         fast_rcnn_inference_single_image(
-            boxes_per_image, scores_per_image, image_shape, score_thresh, nms_thresh, topk_per_image
+            boxes_per_image, scores_per_image, bases_per_image, image_shape, score_thresh, nms_thresh, topk_per_image
         )
-        for scores_per_image, boxes_per_image, image_shape in zip(scores, boxes, image_shapes)
+        for scores_per_image, boxes_per_image, bases_per_image, image_shape in zip(scores, boxes, bases, image_shapes)
     ]
     return [x[0] for x in result_per_image], [x[1] for x in result_per_image]
 
@@ -87,6 +88,7 @@ def fast_rcnn_inference(
 def fast_rcnn_inference_single_image(
         boxes,
         scores,
+        bases,
         image_shape: Tuple[int, int],
         score_thresh: float,
         nms_thresh: float,
@@ -107,6 +109,7 @@ def fast_rcnn_inference_single_image(
     if not valid_mask.all():
         boxes = boxes[valid_mask]
         scores = scores[valid_mask]
+        bases = bases[valid_mask]
 
     scores = scores[:, :-1]
     num_bbox_reg_classes = boxes.shape[1] // 4
@@ -114,6 +117,10 @@ def fast_rcnn_inference_single_image(
     boxes = Boxes(boxes.reshape(-1, 4))
     boxes.clip(image_shape)
     boxes = boxes.tensor.view(-1, num_bbox_reg_classes, 4)  # R x C x 4
+    bases = bases.view(-1, num_bbox_reg_classes, 8)
+
+    print(boxes.shape)
+    print(bases.shape)
 
     # 1. Filter results based on detection scores. It can make NMS more efficient
     #    by filtering out low-confidence detections.
@@ -125,15 +132,17 @@ def fast_rcnn_inference_single_image(
         boxes = boxes[filter_inds[:, 0], 0]
     else:
         boxes = boxes[filter_mask]
+    bases = bases[filter_mask]
     scores = scores[filter_mask]
 
     # 2. Apply NMS for each class independently.
     keep = batched_nms(boxes, scores, filter_inds[:, 1], nms_thresh)
     if topk_per_image >= 0:
         keep = keep[:topk_per_image]
-    boxes, scores, filter_inds = boxes[keep], scores[keep], filter_inds[keep]
+    boxes, bases, scores, filter_inds = boxes[keep], bases[keep], scores[keep], filter_inds[keep]
 
     result = Instances(image_shape)
+    result.pred_bases = bases
     result.pred_boxes = Boxes(boxes)
     result.scores = scores
     result.pred_classes = filter_inds[:, 1]
@@ -379,8 +388,10 @@ class FastRCNNOutputs:
         # example in minibatch (2). Normalizing by the total number of regions, R,
         # means that the single example in minibatch (1) and each of the 100 examples
         # in minibatch (2) are given equal influence.
+        # print(loss_base_reg)
         loss_base_reg = loss_base_reg / self.gt_classes.numel()
-        return loss_base_reg / 400
+        # print(loss_base_reg)
+        return loss_base_reg / 50
 
     def _predict_boxes(self):
         """
@@ -484,12 +495,11 @@ class NewFastRCNNOutputLayers(nn.Module):
         box_dim = len(box2box_transform.weights)
         self.bbox_pred = Linear(input_size, num_bbox_reg_classes * box_dim)
         # modified
-        self.base_pred = nn.Linear(input_size, num_bbox_reg_classes * 8)
+        self.base_pred = Linear(input_size, num_bbox_reg_classes * 8)
 
         nn.init.normal_(self.cls_score.weight, std=0.01)
         nn.init.normal_(self.bbox_pred.weight, std=0.001)
-        nn.init.normal_(self.base_pred.weight, mean=1, std=1)
-        self.base_pred.bias.data.fill_(1)
+        nn.init.normal_(self.base_pred.weight, mean=0.6, std=0.2)
         for l in [self.cls_score, self.bbox_pred]:
             nn.init.constant_(l.bias, 0)
 
@@ -504,7 +514,7 @@ class NewFastRCNNOutputLayers(nn.Module):
         self.loss_weight = loss_weight
         # modified
         for param in self.parameters():
-            param.requires_grad = True
+            param.requires_grad = False
 
     @classmethod
     def from_config(cls, cfg, input_shape):
@@ -555,8 +565,12 @@ class NewFastRCNNOutputLayers(nn.Module):
         Returns:
             Dict[str, Tensor]: dict of losses
         """
+        # for param in self.parameters():
+        #     print(param)
         predictions, pred_bases = predictions
         scores, proposal_deltas = predictions
+        # print(pred_bases)
+        # print(proposal_deltas)
         losses = FastRCNNOutputs(
             self.box2box_transform,
             scores,
@@ -572,7 +586,7 @@ class NewFastRCNNOutputLayers(nn.Module):
         # return {}
         return {k: v * self.loss_weight.get(k, 1.0) for k, v in losses.items()}
 
-    def inference(self, predictions: Tuple[torch.Tensor, torch.Tensor], proposals: List[Instances]):
+    def inference(self, predictions: Tuple[Tuple[torch.Tensor, torch.Tensor], torch.Tensor], proposals: List[Instances]):
         """
         Args:
             predictions: return values of :meth:`forward()`.
@@ -583,11 +597,14 @@ class NewFastRCNNOutputLayers(nn.Module):
             list[Instances]: same as `fast_rcnn_inference`.
             list[Tensor]: same as `fast_rcnn_inference`.
         """
+        predictions, pred_bases = predictions
         boxes = self.predict_boxes(predictions, proposals)
+        bases = self.predict_bases(pred_bases, proposals)
         scores = self.predict_probs(predictions, proposals)
         image_shapes = [x.image_size for x in proposals]
         return fast_rcnn_inference(
             boxes,
+            bases,
             scores,
             image_shapes,
             self.test_score_thresh,
@@ -657,7 +674,15 @@ class NewFastRCNNOutputLayers(nn.Module):
             proposal_deltas,
             proposal_boxes,
         )  # Nx(KxB)
+        print("boxes:", predict_boxes.shape)
         return predict_boxes.split(num_prop_per_image)
+
+    def predict_bases(
+            self, pred_bases: torch.Tensor, proposals: List[Instances]
+    ):
+        num_inst_per_image = [len(p) for p in proposals]
+        print("bases:", pred_bases.shape)
+        return pred_bases.split(num_inst_per_image, dim=0)
 
     def predict_probs(
             self, predictions: Tuple[torch.Tensor, torch.Tensor], proposals: List[Instances]
