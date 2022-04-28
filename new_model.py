@@ -495,7 +495,7 @@ class NewFastRCNNOutputLayers(nn.Module):
         box_dim = len(box2box_transform.weights)
         self.bbox_pred = Linear(input_size, num_bbox_reg_classes * box_dim)
         # modified
-        self.base_pred = Linear(input_size, num_bbox_reg_classes * 8)
+        self.base_pred = Linear(input_size, num_bbox_reg_classes * 6)
 
         nn.init.normal_(self.cls_score.weight, std=0.01)
         nn.init.normal_(self.bbox_pred.weight, std=0.001)
@@ -551,6 +551,11 @@ class NewFastRCNNOutputLayers(nn.Module):
         scores = self.cls_score(x)
         proposal_deltas = self.bbox_pred(x)
         proposal_bases = self.base_pred(x)
+
+        mid = proposal_bases[:, 0:2]
+        first = proposal_bases[:, 2:4]
+        second = proposal_bases[:, 4:6]
+        proposal_bases = torch.cat((mid + first, mid + second, mid - first, mid - second), dim=1)
         return (scores, proposal_deltas), proposal_bases
 
     # TODO: move the implementation to this class.
