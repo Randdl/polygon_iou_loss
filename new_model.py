@@ -12,6 +12,8 @@ from detectron2.modeling.box_regression import Box2BoxTransform
 from detectron2.structures import Boxes, Instances
 from detectron2.utils.events import get_event_storage
 
+from polyogn_iou_loss import c_poly_loss
+
 __all__ = ["fast_rcnn_inference", "FastRCNNOutputLayers"]
 
 logger = logging.getLogger(__name__)
@@ -360,7 +362,8 @@ class FastRCNNOutputs:
             # we do not perform bounding box regression for background classes.
             gt_class_cols = box_dim * fg_gt_classes[:, None] + torch.arange(box_dim, device=device)
 
-        if self.box_reg_loss_type == "smooth_l1":
+        POLY = True
+        if not POLY:
             # print("bases: ", gt_class_cols)
             loss_base_reg = smooth_l1_loss(
                 self.pred_bases[fg_inds[:, None], gt_class_cols],
@@ -368,14 +371,22 @@ class FastRCNNOutputs:
                 self.smooth_l1_beta,
                 reduction="sum",
             )
-        elif self.box_reg_loss_type == "giou":
-            loss_base_reg = giou_loss(
-                self._predict_boxes()[fg_inds[:, None], gt_class_cols],
-                self.gt_boxes.tensor[fg_inds],
+        else:
+            preds = self.pred_bases[fg_inds[:, None], gt_class_cols]
+            gts = self.gt_bases[fg_inds]
+            # print(preds.shape)
+            loss_base_reg = 0
+            for idx in range(preds.shape[0]):
+                loss_base_reg += c_poly_loss(preds[idx, :].view(4, 2), gts[idx, :].view(4, 2))
+            loss_base_reg += 1e-5 * smooth_l1_loss(
+                self.pred_bases[fg_inds[:, None], gt_class_cols],
+                self.gt_bases[fg_inds],
+                self.smooth_l1_beta,
                 reduction="sum",
             )
-        else:
-            raise ValueError(f"Invalid bbox reg loss type '{self.box_reg_loss_type}'")
+            # print(loss_base_reg)
+            # print(self.gt_classes.numel())
+
 
         # The loss is normalized using the total number of regions (R), not the number
         # of foreground regions even though the box regression loss is only defined on
@@ -388,10 +399,9 @@ class FastRCNNOutputs:
         # example in minibatch (2). Normalizing by the total number of regions, R,
         # means that the single example in minibatch (1) and each of the 100 examples
         # in minibatch (2) are given equal influence.
-        # print(loss_base_reg)
         loss_base_reg = loss_base_reg / self.gt_classes.numel()
         # print(loss_base_reg)
-        return loss_base_reg / 50
+        return loss_base_reg * 10
 
     def _predict_boxes(self):
         """
@@ -499,7 +509,7 @@ class NewFastRCNNOutputLayers(nn.Module):
 
         nn.init.normal_(self.cls_score.weight, std=0.01)
         nn.init.normal_(self.bbox_pred.weight, std=0.001)
-        nn.init.normal_(self.base_pred.weight, mean=0.6, std=0.2)
+        nn.init.normal_(self.base_pred.weight, mean=0.8, std=0.4)
         for l in [self.cls_score, self.bbox_pred]:
             nn.init.constant_(l.bias, 0)
 
