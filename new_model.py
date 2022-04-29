@@ -358,10 +358,10 @@ class FastRCNNOutputs:
         # we do not perform bounding box regression for background classes.
         gt_class_cols = box_dim * fg_gt_classes[:, None] + torch.arange(box_dim, device=device)
 
-        POLY = True
+        POLY = False
         if not POLY:
             # print("bases: ", gt_class_cols)
-            loss_base_reg = smooth_l1_loss(
+            loss_base_reg = 1e-4 * smooth_l1_loss(
                 self.pred_bases[fg_inds[:, None], gt_class_cols],
                 self.gt_bases[fg_inds],
                 self.smooth_l1_beta,
@@ -505,8 +505,19 @@ class NewFastRCNNOutputLayers(nn.Module):
 
         nn.init.normal_(self.cls_score.weight, std=0.01)
         nn.init.normal_(self.bbox_pred.weight, std=0.001)
-        nn.init.normal_(self.base_pred.weight, mean=0.6, std=0.3)
-        for l in [self.cls_score, self.bbox_pred]:
+        # nn.init.normal_(self.base_pred.weight, mean=0.6, std=0.6)
+        # print(self.base_pred.weight.shape)
+        for idx in range(num_bbox_reg_classes):
+            nn.init.normal_(self.base_pred.weight[idx*6, :], mean=0.6, std=0.01)
+            nn.init.normal_(self.base_pred.weight[idx * 6 + 1, :], mean=0.205, std=0.01)
+            nn.init.normal_(self.base_pred.weight[idx * 6 + 2, :], mean=0.575, std=0.01)
+            nn.init.normal_(self.base_pred.weight[idx * 6 + 3, :], mean=0.3525, std=0.01)
+            nn.init.normal_(self.base_pred.weight[idx * 6 + 4, :], mean=0.575, std=0.01)
+            nn.init.normal_(self.base_pred.weight[idx * 6 + 5, :], mean=-0.3525, std=0.01)
+            # self.base_pred.weight[:, idx * 6 + 2:idx * 6 + 4] = 0.6
+            # self.base_pred.weight[:, idx * 6 + 4] = 0.6
+            # self.base_pred.weight[:, idx * 6 + 5] = 0.6
+        for l in [self.cls_score, self.bbox_pred, self.base_pred]:
             nn.init.constant_(l.bias, 0)
 
         self.box2box_transform = box2box_transform
@@ -564,6 +575,7 @@ class NewFastRCNNOutputLayers(nn.Module):
         first = proposal_bases[:, :, 2:4]
         second = proposal_bases[:, :, 4:6]
         proposal_bases = torch.cat((mid + first, mid + second, mid - first, mid - second), dim=2)
+        # print(proposal_bases[0,:,:])
         # print(proposal_bases.view(-1, 72).shape)
         return (scores, proposal_deltas), proposal_bases.view(-1, 72)
 

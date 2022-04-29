@@ -41,17 +41,18 @@ DatasetCatalog.register("Kitti_train", lambda: load_dataset_detectron2())
 
 cfg = get_cfg()
 cfg.merge_from_file("configs/base_detection_faster_rcnn.yaml")
-cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5
+cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.1
 cfg.DATASETS.TRAIN = ("Kitti_train",)
 cfg.DATALOADER.NUM_WORKERS = 0
 
 predictor = DefaultPredictor(cfg)
 
 checkpointer = DetectionCheckpointer(predictor.model, save_dir="model_param")
-checkpointer.load("results/model_final.pth")
+checkpointer.load("results/model_0039999.pth")
+checkpointer.load("output/model_final.pth")
 
 # im = cv2.imread("images/000000.png")
-im = cv2.imread("images/000004.png")
+im = cv2.imread("images/000009.png")
 # print(im.shape)
 # plt.figure(figsize=(15, 7.5))
 # plt.imshow(im[..., ::-1])
