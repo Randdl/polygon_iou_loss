@@ -118,10 +118,11 @@ def fast_rcnn_inference_single_image(
     # Convert to Boxes to use the `clip` function ...
     boxes = Boxes(boxes.reshape(-1, 4))
     boxes.clip(image_shape)
+    print(boxes.tensor.shape)
+    print(bases.shape)
     boxes = boxes.tensor.view(-1, num_bbox_reg_classes, 4)  # R x C x 4
-    bases = bases.view(-1, num_bbox_reg_classes, 8)
-
     print(boxes.shape)
+    bases = bases.view(-1, num_bbox_reg_classes, 8)
     print(bases.shape)
 
     # 1. Filter results based on detection scores. It can make NMS more efficient
@@ -339,7 +340,6 @@ class FastRCNNOutputs:
 
         # print(self.gt_bases.shape)
         box_dim = self.gt_bases.size(1)  # 4 or 5
-        cls_agnostic_bbox_reg = self.pred_bases.size(1) == box_dim
         device = self.pred_bases.device
 
         bg_class_ind = self.pred_class_logits.shape[1] - 1
@@ -351,16 +351,12 @@ class FastRCNNOutputs:
         # arg to smooth_l1_loss is False (otherwise it uses torch.mean internally
         # and would produce a nan loss).
         fg_inds = nonzero_tuple((self.gt_classes >= 0) & (self.gt_classes < bg_class_ind))[0]
-        if cls_agnostic_bbox_reg:
-            # pred_proposal_deltas only corresponds to foreground class for agnostic
-            gt_class_cols = torch.arange(box_dim, device=device)
-        else:
-            fg_gt_classes = self.gt_classes[fg_inds]
-            # pred_proposal_deltas for class k are located in columns [b * k : b * k + b],
-            # where b is the dimension of box representation (4 or 5)
-            # Note that compared to Detectron1,
-            # we do not perform bounding box regression for background classes.
-            gt_class_cols = box_dim * fg_gt_classes[:, None] + torch.arange(box_dim, device=device)
+        fg_gt_classes = self.gt_classes[fg_inds]
+        # pred_proposal_deltas for class k are located in columns [b * k : b * k + b],
+        # where b is the dimension of box representation (4 or 5)
+        # Note that compared to Detectron1,
+        # we do not perform bounding box regression for background classes.
+        gt_class_cols = box_dim * fg_gt_classes[:, None] + torch.arange(box_dim, device=device)
 
         POLY = True
         if not POLY:
@@ -373,8 +369,8 @@ class FastRCNNOutputs:
             )
         else:
             preds = self.pred_bases[fg_inds[:, None], gt_class_cols]
-            gts = self.gt_bases[fg_inds]
             # print(preds.shape)
+            gts = self.gt_bases[fg_inds]
             loss_base_reg = 0
             for idx in range(preds.shape[0]):
                 loss_base_reg += c_poly_loss(preds[idx, :].view(4, 2), gts[idx, :].view(4, 2))
@@ -401,7 +397,7 @@ class FastRCNNOutputs:
         # in minibatch (2) are given equal influence.
         loss_base_reg = loss_base_reg / self.gt_classes.numel()
         # print(loss_base_reg)
-        return loss_base_reg * 10
+        return loss_base_reg * 100
 
     def _predict_boxes(self):
         """
@@ -509,7 +505,7 @@ class NewFastRCNNOutputLayers(nn.Module):
 
         nn.init.normal_(self.cls_score.weight, std=0.01)
         nn.init.normal_(self.bbox_pred.weight, std=0.001)
-        nn.init.normal_(self.base_pred.weight, mean=0.8, std=0.4)
+        nn.init.normal_(self.base_pred.weight, mean=0.6, std=0.3)
         for l in [self.cls_score, self.bbox_pred]:
             nn.init.constant_(l.bias, 0)
 
@@ -524,7 +520,7 @@ class NewFastRCNNOutputLayers(nn.Module):
         self.loss_weight = loss_weight
         # modified
         for param in self.parameters():
-            param.requires_grad = False
+            param.requires_grad = True
 
     @classmethod
     def from_config(cls, cfg, input_shape):
@@ -561,12 +557,15 @@ class NewFastRCNNOutputLayers(nn.Module):
         scores = self.cls_score(x)
         proposal_deltas = self.bbox_pred(x)
         proposal_bases = self.base_pred(x)
+        proposal_bases = proposal_bases.view(-1, 9, 6)
+        # print(proposal_bases.shape)
 
-        mid = proposal_bases[:, 0:2]
-        first = proposal_bases[:, 2:4]
-        second = proposal_bases[:, 4:6]
-        proposal_bases = torch.cat((mid + first, mid + second, mid - first, mid - second), dim=1)
-        return (scores, proposal_deltas), proposal_bases
+        mid = proposal_bases[:, :, 0:2]
+        first = proposal_bases[:, :, 2:4]
+        second = proposal_bases[:, :, 4:6]
+        proposal_bases = torch.cat((mid + first, mid + second, mid - first, mid - second), dim=2)
+        # print(proposal_bases.view(-1, 72).shape)
+        return (scores, proposal_deltas), proposal_bases.view(-1, 72)
 
     # TODO: move the implementation to this class.
     def losses(self, predictions, proposals):
@@ -595,7 +594,6 @@ class NewFastRCNNOutputLayers(nn.Module):
             self.smooth_l1_beta,
             self.box_reg_loss_type,
         ).losses()
-        # modified
         # for param in self.parameters():
         #     print(param)
         # return {}

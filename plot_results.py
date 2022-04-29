@@ -48,7 +48,7 @@ cfg.DATALOADER.NUM_WORKERS = 0
 predictor = DefaultPredictor(cfg)
 
 checkpointer = DetectionCheckpointer(predictor.model, save_dir="model_param")
-checkpointer.load("output/model_final.pth")
+checkpointer.load("results/model_final.pth")
 
 # im = cv2.imread("images/000000.png")
 im = cv2.imread("images/000004.png")
