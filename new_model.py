@@ -339,7 +339,8 @@ class FastRCNNOutputs:
             return 0.0 * self.pred_bases.sum()
 
         # print(self.gt_bases.shape)
-        box_dim = self.gt_bases.size(1)  # 4 or 5
+        # box_dim = self.gt_bases.size(1)  # 4 or 5
+        box_dim = 6  # 4 or 5
         device = self.pred_bases.device
 
         bg_class_ind = self.pred_class_logits.shape[1] - 1
@@ -360,12 +361,25 @@ class FastRCNNOutputs:
         # print(self.proposals.tensor[fg_inds].shape)
         # print(self.pred_bases[fg_inds[:, None], gt_class_cols].shape)
 
+        proposal_bases = self.pred_bases[fg_inds[:, None], gt_class_cols]
+        midx = proposal_bases[:, 0]
+        midy = proposal_bases[:, 0]
+        first = proposal_bases[:, 2:4]
+        second = proposal_bases[:, 4:6]
+
         x1 = self.proposals.tensor[fg_inds][:, 0]
         y1 = self.proposals.tensor[fg_inds][:, 1]
         x2 = self.proposals.tensor[fg_inds][:, 2]
         y2 = self.proposals.tensor[fg_inds][:, 3]
-        bases_transformed = torch.stack((x1, x2, x2, y1, x1, y2, x2, y2), dim=1)
-        bases_transformed = bases_transformed * (1 + self.pred_bases[fg_inds[:, None], gt_class_cols])
+        midx = (x1 + x2) / 2 + midx
+        midy = y1 + midy
+        mid = torch.stack((midx, midy), dim=1)
+        # print(mid.shape)
+        # print(mid)
+        bases_transformed = torch.cat((mid - first, mid + second, mid - second, mid + first), dim=1)
+        # bases_transformed = torch.stack((x1, x2, x2, y1, x1, y2, x2, y2), dim=1)
+        # bases_transformed = bases_transformed * (1 + self.pred_bases[fg_inds[:, None], gt_class_cols])
+        # print(1 + self.pred_bases[fg_inds[:, None], gt_class_cols])
 
         POLY = False
         if not POLY:
@@ -378,7 +392,7 @@ class FastRCNNOutputs:
             # )
             # print(bases_transformed)
             # print(self.gt_bases[fg_inds])
-            loss_base_reg = 1e-3 * smooth_l1_loss(
+            loss_base_reg = 1e-2 * smooth_l1_loss(
                 bases_transformed,
                 self.gt_bases[fg_inds],
                 self.smooth_l1_beta,
@@ -401,7 +415,6 @@ class FastRCNNOutputs:
             # print(loss_base_reg)
             # print(loss_base_reg)
             # print(self.gt_classes.numel())
-
 
         # The loss is normalized using the total number of regions (R), not the number
         # of foreground regions even though the box regression loss is only defined on
@@ -525,7 +538,7 @@ class NewFastRCNNOutputLayers(nn.Module):
         nn.init.normal_(self.cls_score.weight, std=0.01)
         nn.init.normal_(self.bbox_pred.weight, std=0.001)
         # nn.init.normal_(self.base_pred.weight, mean=0.6, std=0.6)
-        nn.init.normal_(self.base_pred.weight, std=0.005)
+        nn.init.normal_(self.base_pred.weight, std=0.1)
         # print(self.base_pred.weight.shape)
         # for idx in range(num_bbox_reg_classes):
         #     nn.init.normal_(self.base_pred.weight[idx*6, :], mean=0.6, std=0.01)
@@ -534,9 +547,9 @@ class NewFastRCNNOutputLayers(nn.Module):
         #     nn.init.normal_(self.base_pred.weight[idx * 6 + 3, :], mean=0.3525, std=0.01)
         #     nn.init.normal_(self.base_pred.weight[idx * 6 + 4, :], mean=0.575, std=0.01)
         #     nn.init.normal_(self.base_pred.weight[idx * 6 + 5, :], mean=-0.3525, std=0.01)
-            # self.base_pred.weight[:, idx * 6 + 2:idx * 6 + 4] = 0.6
-            # self.base_pred.weight[:, idx * 6 + 4] = 0.6
-            # self.base_pred.weight[:, idx * 6 + 5] = 0.6
+        # self.base_pred.weight[:, idx * 6 + 2:idx * 6 + 4] = 0.6
+        # self.base_pred.weight[:, idx * 6 + 4] = 0.6
+        # self.base_pred.weight[:, idx * 6 + 5] = 0.6
         for l in [self.cls_score, self.bbox_pred, self.base_pred]:
             nn.init.constant_(l.bias, 0)
 
@@ -588,16 +601,16 @@ class NewFastRCNNOutputLayers(nn.Module):
         scores = self.cls_score(x)
         proposal_deltas = self.bbox_pred(x)
         proposal_bases = self.base_pred(x)
-        proposal_bases = proposal_bases.view(-1, 9, 6)
-        # print(proposal_bases.shape)
 
-        mid = proposal_bases[:, :, 0:2]
-        first = proposal_bases[:, :, 2:4]
-        second = proposal_bases[:, :, 4:6]
-        proposal_bases = torch.cat((mid + first, mid + second, mid - first, mid - second), dim=2)
+        # proposal_bases = proposal_bases.view(-1, 9, 6)
+        # mid = proposal_bases[:, :, 0:2]
+        # first = proposal_bases[:, :, 2:4]
+        # second = proposal_bases[:, :, 4:6]
+        # proposal_bases = torch.cat((mid + first, mid + second, mid - first, mid - second), dim=2)
+        # proposal_bases = proposal_bases.view(-1, 72)
         # print(proposal_bases[0,:,:])
         # print(proposal_bases.view(-1, 72).shape)
-        return (scores, proposal_deltas), proposal_bases.view(-1, 72)
+        return (scores, proposal_deltas), proposal_bases
 
     # TODO: move the implementation to this class.
     def losses(self, predictions, proposals):
@@ -631,7 +644,8 @@ class NewFastRCNNOutputLayers(nn.Module):
         # return {}
         return {k: v * self.loss_weight.get(k, 1.0) for k, v in losses.items()}
 
-    def inference(self, predictions: Tuple[Tuple[torch.Tensor, torch.Tensor], torch.Tensor], proposals: List[Instances]):
+    def inference(self, predictions: Tuple[Tuple[torch.Tensor, torch.Tensor], torch.Tensor],
+                  proposals: List[Instances]):
         """
         Args:
             predictions: return values of :meth:`forward()`.

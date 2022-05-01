@@ -352,8 +352,8 @@ class Kitti(VisionDataset):
             plt.scatter(x=base[0, 1], y=base[1, 1], s=40, color="w")
             plt.scatter(x=base[0, 2], y=base[1, 2], s=40, color="y")
             plt.scatter(x=base[0, 3], y=base[1, 3], s=40, color="g")
-            # plt.scatter(x=bbox[0], y=bbox[1], s=40, color="b")
-            # plt.scatter(x=bbox[2], y=bbox[3], s=40, color="b")
+            plt.scatter(x=bbox[0], y=bbox[1], s=40, color="b")
+            plt.scatter(x=bbox[2], y=bbox[3], s=40, color="b")
         plt.imshow(sample['image'])
         plt.show()
 
@@ -392,7 +392,7 @@ def load_dataset_detectron2(root="..", train=True):
 
     dataset_dicts = []
     for idx in range(len(images)):
-        if idx == 1000:
+        if idx == 200:
             break
         if idx % 100 == 0:
             print("{} loaded".format(idx))
