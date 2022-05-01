@@ -381,6 +381,9 @@ class FastRCNNOutputs:
         # bases_transformed = bases_transformed * (1 + self.pred_bases[fg_inds[:, None], gt_class_cols])
         # print(1 + self.pred_bases[fg_inds[:, None], gt_class_cols])
 
+        print(bases_transformed)
+        print(self.gt_bases[fg_inds])
+
         POLY = False
         if not POLY:
             # print("bases: ", gt_class_cols)
@@ -538,7 +541,7 @@ class NewFastRCNNOutputLayers(nn.Module):
         nn.init.normal_(self.cls_score.weight, std=0.01)
         nn.init.normal_(self.bbox_pred.weight, std=0.001)
         # nn.init.normal_(self.base_pred.weight, mean=0.6, std=0.6)
-        nn.init.normal_(self.base_pred.weight, std=0.1)
+        nn.init.normal_(self.base_pred.weight, std=0.3)
         # print(self.base_pred.weight.shape)
         # for idx in range(num_bbox_reg_classes):
         #     nn.init.normal_(self.base_pred.weight[idx*6, :], mean=0.6, std=0.01)
