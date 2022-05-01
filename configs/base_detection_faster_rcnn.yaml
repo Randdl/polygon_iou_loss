@@ -45,9 +45,9 @@ MODEL:
 #    NAME: "PrecomputedProposals"
 DATASETS:
   TRAIN: ("Kitti_train",)
+  TEST: ("Kitti_val",)
 #  PROPOSAL_FILES_TRAIN: ()
 #  PRECOMPUTED_PROPOSAL_TOPK_TRAIN: 2000
-  TEST: ()
 SOLVER:
   IMS_PER_BATCH: 8
 #  BASE_LR: 0.01
@@ -60,5 +60,5 @@ VERSION: 2
 DATALOADER:
   # proposals are part of the dataset_dicts, and take a lot of RAM
   NUM_WORKERS: 2
-#TEST:
-#  EVAL_PERIOD: 20
+TEST:
+  EVAL_PERIOD: 100

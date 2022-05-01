@@ -357,12 +357,29 @@ class FastRCNNOutputs:
         # Note that compared to Detectron1,
         # we do not perform bounding box regression for background classes.
         gt_class_cols = box_dim * fg_gt_classes[:, None] + torch.arange(box_dim, device=device)
+        # print(self.proposals.tensor[fg_inds].shape)
+        # print(self.pred_bases[fg_inds[:, None], gt_class_cols].shape)
+
+        x1 = self.proposals.tensor[fg_inds][:, 0]
+        y1 = self.proposals.tensor[fg_inds][:, 1]
+        x2 = self.proposals.tensor[fg_inds][:, 2]
+        y2 = self.proposals.tensor[fg_inds][:, 3]
+        bases_transformed = torch.stack((x1, x2, x2, y1, x1, y2, x2, y2), dim=1)
+        bases_transformed = bases_transformed * (1 + self.pred_bases[fg_inds[:, None], gt_class_cols])
 
         POLY = False
         if not POLY:
             # print("bases: ", gt_class_cols)
-            loss_base_reg = 1e-4 * smooth_l1_loss(
-                self.pred_bases[fg_inds[:, None], gt_class_cols],
+            # loss_base_reg = 1e-4 * smooth_l1_loss(
+            #     self.pred_bases[fg_inds[:, None], gt_class_cols],
+            #     self.gt_bases[fg_inds],
+            #     self.smooth_l1_beta,
+            #     reduction="sum",
+            # )
+            # print(bases_transformed)
+            # print(self.gt_bases[fg_inds])
+            loss_base_reg = 1e-3 * smooth_l1_loss(
+                bases_transformed,
                 self.gt_bases[fg_inds],
                 self.smooth_l1_beta,
                 reduction="sum",
@@ -374,12 +391,14 @@ class FastRCNNOutputs:
             loss_base_reg = 0
             for idx in range(preds.shape[0]):
                 loss_base_reg += c_poly_loss(preds[idx, :].view(4, 2), gts[idx, :].view(4, 2))
+            # print(loss_base_reg)
             loss_base_reg += 1e-5 * smooth_l1_loss(
                 self.pred_bases[fg_inds[:, None], gt_class_cols],
                 self.gt_bases[fg_inds],
                 self.smooth_l1_beta,
                 reduction="sum",
             )
+            # print(loss_base_reg)
             # print(loss_base_reg)
             # print(self.gt_classes.numel())
 
@@ -397,7 +416,7 @@ class FastRCNNOutputs:
         # in minibatch (2) are given equal influence.
         loss_base_reg = loss_base_reg / self.gt_classes.numel()
         # print(loss_base_reg)
-        return loss_base_reg * 100
+        return loss_base_reg * 10
 
     def _predict_boxes(self):
         """
@@ -506,14 +525,15 @@ class NewFastRCNNOutputLayers(nn.Module):
         nn.init.normal_(self.cls_score.weight, std=0.01)
         nn.init.normal_(self.bbox_pred.weight, std=0.001)
         # nn.init.normal_(self.base_pred.weight, mean=0.6, std=0.6)
+        nn.init.normal_(self.base_pred.weight, std=0.005)
         # print(self.base_pred.weight.shape)
-        for idx in range(num_bbox_reg_classes):
-            nn.init.normal_(self.base_pred.weight[idx*6, :], mean=0.6, std=0.01)
-            nn.init.normal_(self.base_pred.weight[idx * 6 + 1, :], mean=0.205, std=0.01)
-            nn.init.normal_(self.base_pred.weight[idx * 6 + 2, :], mean=0.575, std=0.01)
-            nn.init.normal_(self.base_pred.weight[idx * 6 + 3, :], mean=0.3525, std=0.01)
-            nn.init.normal_(self.base_pred.weight[idx * 6 + 4, :], mean=0.575, std=0.01)
-            nn.init.normal_(self.base_pred.weight[idx * 6 + 5, :], mean=-0.3525, std=0.01)
+        # for idx in range(num_bbox_reg_classes):
+        #     nn.init.normal_(self.base_pred.weight[idx*6, :], mean=0.6, std=0.01)
+        #     nn.init.normal_(self.base_pred.weight[idx * 6 + 1, :], mean=0.205, std=0.01)
+        #     nn.init.normal_(self.base_pred.weight[idx * 6 + 2, :], mean=0.575, std=0.01)
+        #     nn.init.normal_(self.base_pred.weight[idx * 6 + 3, :], mean=0.3525, std=0.01)
+        #     nn.init.normal_(self.base_pred.weight[idx * 6 + 4, :], mean=0.575, std=0.01)
+        #     nn.init.normal_(self.base_pred.weight[idx * 6 + 5, :], mean=-0.3525, std=0.01)
             # self.base_pred.weight[:, idx * 6 + 2:idx * 6 + 4] = 0.6
             # self.base_pred.weight[:, idx * 6 + 4] = 0.6
             # self.base_pred.weight[:, idx * 6 + 5] = 0.6
