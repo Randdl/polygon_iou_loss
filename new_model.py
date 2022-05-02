@@ -378,41 +378,61 @@ class FastRCNNOutputs:
         # print(self.proposals.tensor[fg_inds].shape)
         # print(self.pred_bases[fg_inds[:, None], gt_class_cols].shape)
 
-        proposal_bases = self.pred_bases[fg_inds[:, None], gt_class_cols]
-        midx = proposal_bases[:, 0]
-        midy = proposal_bases[:, 0]
-        firstx = proposal_bases[:, 2]
-        firsty = proposal_bases[:, 3]
-        secondx = proposal_bases[:, 4]
-        secondy = proposal_bases[:, 5]
+        # proposal_bases = self.pred_bases[fg_inds[:, None], gt_class_cols]
+        # midx = proposal_bases[:, 0]
+        # midy = proposal_bases[:, 0]
+        # firstx = proposal_bases[:, 2]
+        # firsty = proposal_bases[:, 3]
+        # secondx = proposal_bases[:, 4]
+        # secondy = proposal_bases[:, 5]
+        #
+        # x1 = self.proposals.tensor[fg_inds][:, 0]
+        # y1 = self.proposals.tensor[fg_inds][:, 1]
+        # x2 = self.proposals.tensor[fg_inds][:, 2]
+        # y2 = self.proposals.tensor[fg_inds][:, 3]
+        # proposal_midx = (x1 + x2) / 2
+        # proposal_midy = y1 + y2
+        # dx = x2 - x1
+        # dy = y2 - y1
+        # midx = (x1 + x2) / 2 + midx * dx
+        # midy = y2 - midy * dy
+        # mid = torch.stack((midx, midy), dim=1)
+        #
+        # firstx = firstx * dx
+        # firsty = firsty * dy
+        # secondx = secondx * dx
+        # secondy = secondy * dy
+        # first = torch.stack((firstx, firsty), dim=1)
+        # second = torch.stack((secondx, secondy), dim=1)
+        # # print(mid.shape)
+        # # print(mid)
+        # bases_transformed = torch.cat((mid - first, mid + second, mid - second, mid + first), dim=1)
+        # # bases_transformed = torch.stack((x1, x2, x2, y1, x1, y2, x2, y2), dim=1)
+        # # bases_transformed = bases_transformed * (1 + self.pred_bases[fg_inds[:, None], gt_class_cols])
+        # # print(1 + self.pred_bases[fg_inds[:, None], gt_class_cols])
+        #
+        # # print(bases_transformed)
+        # # print(self.gt_bases[fg_inds])
 
-        x1 = self.proposals.tensor[fg_inds][:, 0]
-        y1 = self.proposals.tensor[fg_inds][:, 1]
-        x2 = self.proposals.tensor[fg_inds][:, 2]
-        y2 = self.proposals.tensor[fg_inds][:, 3]
+        x1 = self.proposals.tensor[:, 0]
+        y1 = self.proposals.tensor[:, 1]
+        x2 = self.proposals.tensor[:, 2]
+        y2 = self.proposals.tensor[:, 3]
+        proposal_midx = (x1 + x2) / 2
+        proposal_midy = (y1 + y2) / 2
         dx = x2 - x1
         dy = y2 - y1
-        midx = (x1 + x2) / 2 + midx * dx
-        midy = y2 - midy * dy
-        mid = torch.stack((midx, midy), dim=1)
+        gt_bases_midx = self.gt_bases[:, 0] + self.gt_bases[:, 2] + self.gt_bases[:, 4] + self.gt_bases[:, 6]
+        gt_bases_midy = self.gt_bases[:, 1] + self.gt_bases[:, 3] + self.gt_bases[:, 5] + self.gt_bases[:, 7]
+        gt_bases_midx = gt_bases_midx / 4
+        gt_bases_midy = gt_bases_midy / 4
+        gt_bases_midx = gt_bases_midx - proposal_midx
+        gt_bases_midy = gt_bases_midy - proposal_midy
+        gt_bases_midx = gt_bases_midx / dx
+        gt_bases_midy = gt_bases_midy / dy
+        gt_bases_mid = torch.stack((gt_bases_midx, gt_bases_midy), dim=1)
 
-        firstx = firstx * dx
-        firsty = firsty * dy
-        secondx = secondx * dx
-        secondy = secondy * dy
-        first = torch.stack((firstx, firsty), dim=1)
-        second = torch.stack((secondx, secondy), dim=1)
-        # print(mid.shape)
-        # print(mid)
-        bases_transformed = torch.cat((mid - first, mid + second, mid - second, mid + first), dim=1)
-        # bases_transformed = torch.stack((x1, x2, x2, y1, x1, y2, x2, y2), dim=1)
-        # bases_transformed = bases_transformed * (1 + self.pred_bases[fg_inds[:, None], gt_class_cols])
-        # print(1 + self.pred_bases[fg_inds[:, None], gt_class_cols])
-
-        # print(bases_transformed)
-        # print(self.gt_bases[fg_inds])
-
-        POLY = True
+        POLY = False
         if not POLY:
             # print("bases: ", gt_class_cols)
             # loss_base_reg = 1e-4 * smooth_l1_loss(
@@ -423,9 +443,15 @@ class FastRCNNOutputs:
             # )
             # print(bases_transformed)
             # print(self.gt_bases[fg_inds])
-            loss_base_reg = 1e-3 * smooth_l1_loss(
-                bases_transformed,
-                self.gt_bases[fg_inds],
+            # loss_base_reg = 1e-3 * smooth_l1_loss(
+            #     bases_transformed,
+            #     self.gt_bases[fg_inds],
+            #     self.smooth_l1_beta,
+            #     reduction="sum",
+            # )
+            loss_base_reg = smooth_l1_loss(
+                self.pred_bases[fg_inds[:, None], gt_class_cols][:, 0:2],
+                gt_bases_mid[fg_inds],
                 self.smooth_l1_beta,
                 reduction="sum",
             )
@@ -465,7 +491,7 @@ class FastRCNNOutputs:
         # print(loss_base_reg)
         loss_base_reg = loss_base_reg / self.gt_classes.numel()
         # print(loss_base_reg)
-        return loss_base_reg * 10
+        return loss_base_reg
 
     def _predict_boxes(self):
         """
@@ -599,8 +625,8 @@ class NewFastRCNNOutputLayers(nn.Module):
             loss_weight = {"loss_cls": loss_weight, "loss_box_reg": loss_weight, "loss_base_reg": loss_weight}
         self.loss_weight = loss_weight
         # modified
-        for param in self.parameters():
-            param.requires_grad = True
+        # for param in self.parameters():
+        #     param.requires_grad = True
 
     @classmethod
     def from_config(cls, cfg, input_shape):
