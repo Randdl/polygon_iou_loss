@@ -122,12 +122,13 @@ def fast_rcnn_inference_single_image(
     print(bases.shape)
     boxes = boxes.tensor.view(-1, num_bbox_reg_classes, 4)  # R x C x 4
     print(boxes.shape)
-    bases = bases.view(-1, num_bbox_reg_classes, 8)
+    bases = bases.view(-1, num_bbox_reg_classes, 6)
     print(bases.shape)
 
     # 1. Filter results based on detection scores. It can make NMS more efficient
     #    by filtering out low-confidence detections.
     filter_mask = scores > score_thresh  # R x K
+    print(filter_mask.shape)
     # R' x 2. First column contains indices of the R predictions;
     # Second column contains indices of classes.
     filter_inds = filter_mask.nonzero()
@@ -143,6 +144,22 @@ def fast_rcnn_inference_single_image(
     if topk_per_image >= 0:
         keep = keep[:topk_per_image]
     boxes, bases, scores, filter_inds = boxes[keep], bases[keep], scores[keep], filter_inds[keep]
+
+    midx = bases[:, 0]
+    midy = bases[:, 0]
+    first = bases[:, 2:4]
+    second = bases[:, 4:6]
+
+    x1 = boxes[:, 0]
+    y1 = boxes[:, 1]
+    x2 = boxes[:, 2]
+    y2 = boxes[:, 3]
+    midx = (x1 + x2) / 2 + midx
+    midy = y1 + midy
+    mid = torch.stack((midx, midy), dim=1)
+    # print(mid.shape)
+    # print(mid)
+    bases = torch.cat((mid - first, mid + second, mid - second, mid + first), dim=1)
 
     result = Instances(image_shape)
     result.pred_bases = bases
@@ -364,16 +381,27 @@ class FastRCNNOutputs:
         proposal_bases = self.pred_bases[fg_inds[:, None], gt_class_cols]
         midx = proposal_bases[:, 0]
         midy = proposal_bases[:, 0]
-        first = proposal_bases[:, 2:4]
-        second = proposal_bases[:, 4:6]
+        firstx = proposal_bases[:, 2]
+        firsty = proposal_bases[:, 3]
+        secondx = proposal_bases[:, 4]
+        secondy = proposal_bases[:, 5]
 
         x1 = self.proposals.tensor[fg_inds][:, 0]
         y1 = self.proposals.tensor[fg_inds][:, 1]
         x2 = self.proposals.tensor[fg_inds][:, 2]
         y2 = self.proposals.tensor[fg_inds][:, 3]
-        midx = (x1 + x2) / 2 + midx
-        midy = y1 + midy
+        dx = x2 - x1
+        dy = y2 - y1
+        midx = (x1 + x2) / 2 + midx * dx
+        midy = y2 - midy * dy
         mid = torch.stack((midx, midy), dim=1)
+
+        firstx = firstx * dx
+        firsty = firsty * dy
+        secondx = secondx * dx
+        secondy = secondy * dy
+        first = torch.stack((firstx, firsty), dim=1)
+        second = torch.stack((secondx, secondy), dim=1)
         # print(mid.shape)
         # print(mid)
         bases_transformed = torch.cat((mid - first, mid + second, mid - second, mid + first), dim=1)
