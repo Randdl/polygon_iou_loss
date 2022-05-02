@@ -381,10 +381,10 @@ class FastRCNNOutputs:
         # bases_transformed = bases_transformed * (1 + self.pred_bases[fg_inds[:, None], gt_class_cols])
         # print(1 + self.pred_bases[fg_inds[:, None], gt_class_cols])
 
-        print(bases_transformed)
-        print(self.gt_bases[fg_inds])
+        # print(bases_transformed)
+        # print(self.gt_bases[fg_inds])
 
-        POLY = False
+        POLY = True
         if not POLY:
             # print("bases: ", gt_class_cols)
             # loss_base_reg = 1e-4 * smooth_l1_loss(
@@ -395,26 +395,30 @@ class FastRCNNOutputs:
             # )
             # print(bases_transformed)
             # print(self.gt_bases[fg_inds])
-            loss_base_reg = 1e-2 * smooth_l1_loss(
+            loss_base_reg = 1e-3 * smooth_l1_loss(
                 bases_transformed,
                 self.gt_bases[fg_inds],
                 self.smooth_l1_beta,
                 reduction="sum",
             )
         else:
-            preds = self.pred_bases[fg_inds[:, None], gt_class_cols]
+            # preds = self.pred_bases[fg_inds[:, None], gt_class_cols]
             # print(preds.shape)
             gts = self.gt_bases[fg_inds]
             loss_base_reg = 0
-            for idx in range(preds.shape[0]):
-                loss_base_reg += c_poly_loss(preds[idx, :].view(4, 2), gts[idx, :].view(4, 2))
-            # print(loss_base_reg)
-            loss_base_reg += 1e-5 * smooth_l1_loss(
-                self.pred_bases[fg_inds[:, None], gt_class_cols],
-                self.gt_bases[fg_inds],
-                self.smooth_l1_beta,
-                reduction="sum",
-            )
+            for idx in range(bases_transformed.shape[0]):
+                poly_loss = c_poly_loss(bases_transformed[idx, :].view(4, 2), gts[idx, :].view(4, 2))
+                if (1 - poly_loss) < 1e-5:
+                    loss_base_reg += 1e-4 * smooth_l1_loss(
+                        bases_transformed[idx, :],
+                        gts[idx, :],
+                        self.smooth_l1_beta,
+                        reduction="sum", )
+                else:
+                    print(poly_loss)
+                    loss_base_reg += poly_loss
+                # print(loss_base_reg)
+
             # print(loss_base_reg)
             # print(loss_base_reg)
             # print(self.gt_classes.numel())
@@ -430,6 +434,7 @@ class FastRCNNOutputs:
         # example in minibatch (2). Normalizing by the total number of regions, R,
         # means that the single example in minibatch (1) and each of the 100 examples
         # in minibatch (2) are given equal influence.
+        # print(loss_base_reg)
         loss_base_reg = loss_base_reg / self.gt_classes.numel()
         # print(loss_base_reg)
         return loss_base_reg * 10
@@ -541,7 +546,7 @@ class NewFastRCNNOutputLayers(nn.Module):
         nn.init.normal_(self.cls_score.weight, std=0.01)
         nn.init.normal_(self.bbox_pred.weight, std=0.001)
         # nn.init.normal_(self.base_pred.weight, mean=0.6, std=0.6)
-        nn.init.normal_(self.base_pred.weight, std=0.3)
+        nn.init.normal_(self.base_pred.weight, std=0.03)
         # print(self.base_pred.weight.shape)
         # for idx in range(num_bbox_reg_classes):
         #     nn.init.normal_(self.base_pred.weight[idx*6, :], mean=0.6, std=0.01)
@@ -553,7 +558,7 @@ class NewFastRCNNOutputLayers(nn.Module):
         # self.base_pred.weight[:, idx * 6 + 2:idx * 6 + 4] = 0.6
         # self.base_pred.weight[:, idx * 6 + 4] = 0.6
         # self.base_pred.weight[:, idx * 6 + 5] = 0.6
-        for l in [self.cls_score, self.bbox_pred, self.base_pred]:
+        for l in [self.cls_score, self.bbox_pred]:
             nn.init.constant_(l.bias, 0)
 
         self.box2box_transform = box2box_transform
