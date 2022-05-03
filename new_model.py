@@ -424,13 +424,32 @@ class FastRCNNOutputs:
         dy = y2 - y1
         gt_bases_midx = self.gt_bases[:, 0] + self.gt_bases[:, 2] + self.gt_bases[:, 4] + self.gt_bases[:, 6]
         gt_bases_midy = self.gt_bases[:, 1] + self.gt_bases[:, 3] + self.gt_bases[:, 5] + self.gt_bases[:, 7]
+        gt_bases_midx1 = self.gt_bases[:, 0]
+        gt_bases_midy1 = self.gt_bases[:, 1]
+        gt_bases_midx2 = self.gt_bases[:, 2]
+        gt_bases_midy2 = self.gt_bases[:, 3]
         gt_bases_midx = gt_bases_midx / 4
         gt_bases_midy = gt_bases_midy / 4
+
+        gt_bases_midx1 = gt_bases_midx1 - gt_bases_midx
+        gt_bases_midy1 = gt_bases_midy1 - gt_bases_midy
+        gt_bases_midx2 = gt_bases_midx2 - gt_bases_midx
+        gt_bases_midy2 = gt_bases_midy2 - gt_bases_midy
+
         gt_bases_midx = gt_bases_midx - proposal_midx
         gt_bases_midy = gt_bases_midy - proposal_midy
         gt_bases_midx = gt_bases_midx / dx
         gt_bases_midy = gt_bases_midy / dy
         gt_bases_mid = torch.stack((gt_bases_midx, gt_bases_midy), dim=1)
+
+        gt_bases_midx1 = gt_bases_midx1 / dx
+        gt_bases_midy1 = gt_bases_midy1 / dy
+        gt_bases_midx2 = gt_bases_midx2 / dx
+        gt_bases_midy2 = gt_bases_midy2 / dy
+
+        gt_bases_delta = torch.stack((gt_bases_midx, gt_bases_midy, gt_bases_midx1, gt_bases_midy1,
+                                      gt_bases_midx2, gt_bases_midy2), dim=1)
+
 
         POLY = False
         if not POLY:
@@ -450,8 +469,8 @@ class FastRCNNOutputs:
             #     reduction="sum",
             # )
             loss_base_reg = smooth_l1_loss(
-                self.pred_bases[fg_inds[:, None], gt_class_cols][:, 0:2],
-                gt_bases_mid[fg_inds],
+                self.pred_bases[fg_inds[:, None], gt_class_cols],
+                gt_bases_delta[fg_inds],
                 self.smooth_l1_beta,
                 reduction="sum",
             )
