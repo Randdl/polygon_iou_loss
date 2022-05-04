@@ -147,19 +147,31 @@ def fast_rcnn_inference_single_image(
 
     midx = bases[:, 0]
     midy = bases[:, 0]
-    first = bases[:, 2:4]
-    second = bases[:, 4:6]
+    firstx = bases[:, 2]
+    firsty = bases[:, 3]
+    secondx = bases[:, 4]
+    secondy = bases[:, 5]
 
     x1 = boxes[:, 0]
     y1 = boxes[:, 1]
     x2 = boxes[:, 2]
     y2 = boxes[:, 3]
-    midx = (x1 + x2) / 2 + midx
-    midy = y1 + midy
-    mid = torch.stack((midx, midy), dim=1)
+    dx = x2 - x1
+    dy = y2 - y1
+    midx = (x1 + x2) / 2 + midx * dx
+    midy = (y1 + y2) / 2 + midy * dy
+    firstx = midx + firstx * dx
+    firsty = midy + firsty * dy
+    secondx = midx + secondx * dx
+    secondy = midy + secondy * dy
+    thirdx = midx - secondx * dx
+    thirdy = midy - secondx * dy
+    fourthx = midx - firstx * dx
+    fourthy = midy - firstx * dy
+
+    bases = torch.stack((firstx, firsty, secondx, secondy, thirdx, thirdy, fourthx, fourthy, midx, midy), dim=1)
     # print(mid.shape)
     # print(mid)
-    bases = torch.cat((mid - first, mid + second, mid - second, mid + first), dim=1)
 
     result = Instances(image_shape)
     result.pred_bases = bases
