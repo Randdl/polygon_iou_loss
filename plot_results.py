@@ -34,6 +34,7 @@ from detectron2.data import detection_utils as utils
 from data.Kitti import load_dataset_detectron2
 from data.Kittidataloader import KittiDatasetMapper
 from detectron2_custom_model import CustomROIHeads
+from new_model import delta_to_bases
 
 import json
 
@@ -41,33 +42,44 @@ DatasetCatalog.register("Kitti_train", lambda: load_dataset_detectron2())
 
 cfg = get_cfg()
 cfg.merge_from_file("configs/base_detection_faster_rcnn.yaml")
-cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.1
+cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5
 cfg.DATASETS.TRAIN = ("Kitti_train",)
 cfg.DATALOADER.NUM_WORKERS = 0
 
 predictor = DefaultPredictor(cfg)
 
 checkpointer = DetectionCheckpointer(predictor.model, save_dir="model_param")
-checkpointer.load("results/model_0039999.pth")
+# checkpointer.load("results/train center/model_final.pth")
 checkpointer.load("output/model_final.pth")
 
-# im = cv2.imread("images/000000.png")
-im = cv2.imread("images/000009.png")
+# im = cv2.imread("images/000001.png")
+im = cv2.imread("testing/000003.png")
 # print(im.shape)
 # plt.figure(figsize=(15, 7.5))
 # plt.imshow(im[..., ::-1])
 # plt.show()
 outputs = predictor(im[..., ::-1])
-v = Visualizer(im[:, :, ::-1], MetadataCatalog.get("Kitti_train"), scale=1.2)
+# print(outputs["instances"])
+v = Visualizer(im[:, :, ::-1], MetadataCatalog.get("Kitti_train"), scale=1)
 out = v.draw_instance_predictions(outputs["instances"].to("cpu"))
-print(out.get_image()[..., ::-1][..., ::-1])
-plt.figure(figsize=(20,10))
+# print(out.get_image()[..., ::-1][..., ::-1])
+plt.figure(figsize=(20, 10))
 plt.imshow(out.get_image()[..., ::-1][..., ::-1])
 bases = outputs["instances"].pred_bases.to("cpu")
-print(bases.shape)
+boxes = outputs["instances"].pred_boxes.to("cpu").tensor
+# print(outputs["instances"])
+image_y, image_x = outputs["instances"]._image_size
+scale_x = image_x / 1333
+scale_y = image_y / 402
+bases[:, ::2] = bases[:, ::2] * scale_x
+bases[:, 1::2] = bases[:, 1::2] * scale_y
 for idx in range(bases.shape[0]):
     plt.scatter(x=bases[idx, 0], y=bases[idx, 1], s=40, color="r")
     plt.scatter(x=bases[idx, 2], y=bases[idx, 3], s=40, color="r")
     plt.scatter(x=bases[idx, 4], y=bases[idx, 5], s=40, color="r")
     plt.scatter(x=bases[idx, 6], y=bases[idx, 7], s=40, color="r")
+    plt.scatter(x=bases[idx, 8], y=bases[idx, 9], s=40, color="g")
+    # plt.scatter(x=boxes[idx, 0], y=boxes[idx, 1], s=40, color="y")
+    # plt.scatter(x=boxes[idx, 2], y=boxes[idx, 3], s=40, color="y")
+    # break
 plt.show()

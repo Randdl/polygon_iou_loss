@@ -87,6 +87,34 @@ def fast_rcnn_inference(
     return [x[0] for x in result_per_image], [x[1] for x in result_per_image]
 
 
+def delta_to_bases(bases, boxes):
+    midx = bases[::, 0]
+    midy = bases[::, 1]
+    firstx = bases[::, 2]
+    firsty = bases[::, 3]
+    secondx = bases[::, 4]
+    secondy = bases[::, 5]
+
+    x1 = boxes[::, 0]
+    y1 = boxes[::, 1]
+    x2 = boxes[::, 2]
+    y2 = boxes[::, 3]
+    dx = x2 - x1
+    dy = y2 - y1
+    midx = (x1 + x2) / 2 + bases[::, 0] * dx
+    midy = (y1 + y2) / 2 + bases[::, 1] * dy
+    x1 = midx + firstx * dx
+    y1 = midy + firsty * dy
+    x2 = midx + secondx * dx
+    y2 = midy + secondy * dy
+    x3 = midx - secondx * dx
+    y3 = midy - secondy * dy
+    x4 = midx - firstx * dx
+    y4 = midy - firsty * dy
+
+    return torch.stack((x1, y1, x2, y2, x3, y3, x4, y4, midx, midy), dim=-1)
+
+
 def fast_rcnn_inference_single_image(
         boxes,
         scores,
@@ -115,9 +143,11 @@ def fast_rcnn_inference_single_image(
 
     scores = scores[:, :-1]
     num_bbox_reg_classes = boxes.shape[1] // 4
+    print("num_bbox_reg_classes: ", num_bbox_reg_classes)
     # Convert to Boxes to use the `clip` function ...
     boxes = Boxes(boxes.reshape(-1, 4))
     boxes.clip(image_shape)
+    print("image_shape: ", image_shape)
     print(boxes.tensor.shape)
     print(bases.shape)
     boxes = boxes.tensor.view(-1, num_bbox_reg_classes, 4)  # R x C x 4
@@ -145,31 +175,7 @@ def fast_rcnn_inference_single_image(
         keep = keep[:topk_per_image]
     boxes, bases, scores, filter_inds = boxes[keep], bases[keep], scores[keep], filter_inds[keep]
 
-    midx = bases[:, 0]
-    midy = bases[:, 0]
-    firstx = bases[:, 2]
-    firsty = bases[:, 3]
-    secondx = bases[:, 4]
-    secondy = bases[:, 5]
-
-    x1 = boxes[:, 0]
-    y1 = boxes[:, 1]
-    x2 = boxes[:, 2]
-    y2 = boxes[:, 3]
-    dx = x2 - x1
-    dy = y2 - y1
-    midx = (x1 + x2) / 2 + midx * dx
-    midy = (y1 + y2) / 2 + midy * dy
-    firstx = midx + firstx * dx
-    firsty = midy + firsty * dy
-    secondx = midx + secondx * dx
-    secondy = midy + secondy * dy
-    thirdx = midx - secondx * dx
-    thirdy = midy - secondx * dy
-    fourthx = midx - firstx * dx
-    fourthy = midy - firstx * dy
-
-    bases = torch.stack((firstx, firsty, secondx, secondy, thirdx, thirdy, fourthx, fourthy, midx, midy), dim=1)
+    bases = delta_to_bases(bases, boxes)
     # print(mid.shape)
     # print(mid)
 
@@ -178,6 +184,8 @@ def fast_rcnn_inference_single_image(
     result.pred_boxes = Boxes(boxes)
     result.scores = scores
     result.pred_classes = filter_inds[:, 1]
+    print(image_shape)
+    print(result)
     return result, filter_inds[:, 0]
 
 
@@ -426,22 +434,34 @@ class FastRCNNOutputs:
         # # print(bases_transformed)
         # # print(self.gt_bases[fg_inds])
 
-        x1 = self.proposals.tensor[:, 0]
-        y1 = self.proposals.tensor[:, 1]
-        x2 = self.proposals.tensor[:, 2]
-        y2 = self.proposals.tensor[:, 3]
+        gt_class_cols_boxes = torch.arange(4, device=device)
+        pred_boxes = self.box2box_transform.apply_deltas(self.pred_proposal_deltas[:, gt_class_cols_boxes], self.proposals.tensor)
+
+        # print(delta_to_bases(self.pred_bases[fg_inds[:, None], gt_class_cols], pred_boxes[fg_inds]))
+        # print(self.gt_bases)
+        # print(pred_boxes.shape)
+        # print(self.gt_boxes.tensor.shape)
+        # print(pred_boxes)
+        # print(self.gt_boxes.tensor)
+
+        # x1 = self.proposals.tensor[:, 0]
+        # y1 = self.proposals.tensor[:, 1]
+        # x2 = self.proposals.tensor[:, 2]
+        # y2 = self.proposals.tensor[:, 3]
+        x1 = pred_boxes[:, 0]
+        y1 = pred_boxes[:, 1]
+        x2 = pred_boxes[:, 2]
+        y2 = pred_boxes[:, 3]
         proposal_midx = (x1 + x2) / 2
         proposal_midy = (y1 + y2) / 2
         dx = x2 - x1
         dy = y2 - y1
-        gt_bases_midx = self.gt_bases[:, 0] + self.gt_bases[:, 2] + self.gt_bases[:, 4] + self.gt_bases[:, 6]
-        gt_bases_midy = self.gt_bases[:, 1] + self.gt_bases[:, 3] + self.gt_bases[:, 5] + self.gt_bases[:, 7]
+        gt_bases_midx = (self.gt_bases[:, 0] + self.gt_bases[:, 2] + self.gt_bases[:, 4] + self.gt_bases[:, 6]) / 4
+        gt_bases_midy = (self.gt_bases[:, 1] + self.gt_bases[:, 3] + self.gt_bases[:, 5] + self.gt_bases[:, 7]) / 4
         gt_bases_midx1 = self.gt_bases[:, 0]
         gt_bases_midy1 = self.gt_bases[:, 1]
         gt_bases_midx2 = self.gt_bases[:, 2]
         gt_bases_midy2 = self.gt_bases[:, 3]
-        gt_bases_midx = gt_bases_midx / 4
-        gt_bases_midy = gt_bases_midy / 4
 
         gt_bases_midx1 = gt_bases_midx1 - gt_bases_midx
         gt_bases_midy1 = gt_bases_midy1 - gt_bases_midy
@@ -523,7 +543,7 @@ class FastRCNNOutputs:
         # print(loss_base_reg)
         loss_base_reg = loss_base_reg / self.gt_classes.numel()
         # print(loss_base_reg)
-        return loss_base_reg
+        return loss_base_reg * 10
 
     def _predict_boxes(self):
         """
@@ -751,6 +771,19 @@ class NewFastRCNNOutputLayers(nn.Module):
             list[Tensor]: same as `fast_rcnn_inference`.
         """
         predictions, pred_bases = predictions
+
+        # _, proposal_deltas = predictions
+        # proposal_boxes = [p.proposal_boxes for p in proposals]
+        # proposal_boxes = proposal_boxes[0].cat(proposal_boxes).tensor
+        # predict_boxes = self.box2box_transform.apply_deltas(proposal_deltas, proposal_boxes)
+        # print("weights: ", self.box2box_transform.weights)
+        #
+        # pred_bases = delta_to_bases(pred_bases, predict_boxes)
+        # print(predict_boxes)
+        # print(pred_bases)
+        # print(predict_boxes.shape)
+        # print(pred_bases.shape)
+
         boxes = self.predict_boxes(predictions, proposals)
         bases = self.predict_bases(pred_bases, proposals)
         scores = self.predict_probs(predictions, proposals)
