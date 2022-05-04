@@ -449,7 +449,8 @@ class FastRCNNOutputs:
 
         gt_bases_delta = torch.stack((gt_bases_midx, gt_bases_midy, gt_bases_midx1, gt_bases_midy1,
                                       gt_bases_midx2, gt_bases_midy2), dim=1)
-
+        # print(gt_bases_delta[fg_inds][0, :])
+        # print(self.pred_bases[fg_inds[:, None], gt_class_cols][0, :])
 
         POLY = False
         if not POLY:
@@ -619,7 +620,7 @@ class NewFastRCNNOutputLayers(nn.Module):
         nn.init.normal_(self.cls_score.weight, std=0.01)
         nn.init.normal_(self.bbox_pred.weight, std=0.001)
         # nn.init.normal_(self.base_pred.weight, mean=0.6, std=0.6)
-        nn.init.normal_(self.base_pred.weight, std=0.03)
+        nn.init.normal_(self.base_pred.weight, std=0.003)
         # print(self.base_pred.weight.shape)
         # for idx in range(num_bbox_reg_classes):
         #     nn.init.normal_(self.base_pred.weight[idx*6, :], mean=0.6, std=0.01)

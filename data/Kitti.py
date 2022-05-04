@@ -349,6 +349,7 @@ class Kitti(VisionDataset):
             print(base)
             # plt.scatter(x=corners[0, :], y=corners[1, :], s=40, color="w")
             plt.scatter(x=base[0, 0], y=base[1, 0], s=40, color="r")
+            print(base[0, 0], base[1, 0])
             plt.scatter(x=base[0, 1], y=base[1, 1], s=40, color="w")
             plt.scatter(x=base[0, 2], y=base[1, 2], s=40, color="y")
             plt.scatter(x=base[0, 3], y=base[1, 3], s=40, color="g")
@@ -426,7 +427,7 @@ def load_dataset_detectron2(root="..", train=True):
             for line in content:
                 # if float(line[4]) < 1 or float(line[5]) < 1 or float(line[6]) < 1 or float(line[7]) < 1:
                 #     print([float(x) for x in line[4:8]])
-                    # continue
+                # continue
                 if float(line[6]) - float(line[4]) < 1 or float(line[7]) - float(line[5]) < 1:
                     print("discard")
                     print([float(x) for x in line[4:8]])
@@ -440,6 +441,17 @@ def load_dataset_detectron2(root="..", train=True):
                     # print("discard box at {}".format(idx))
                     continue
                 base_3Dto2D, _, _, _ = computeBox3D([float(x) for x in line[8:15]], P2_rect)
+                DISCARD = True
+                if DISCARD:
+                    # print(base_3Dto2D < 0 or base_3Dto2D > 1222)
+                    if not (~(base_3Dto2D < 0)).all():
+                        # print("discard negative base")
+                        # print(base_3Dto2D)
+                        continue
+                    if not (~(base_3Dto2D > 1224)).all():
+                        # print("discard negative base")
+                        # print(base_3Dto2D)
+                        continue
                 obj = {
                     "iscrowd": 0,
                     "bbox": [float(x) for x in line[4:8]],
