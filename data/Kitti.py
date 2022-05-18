@@ -366,17 +366,15 @@ def load_dataset_detectron2(root="..", train=True):
     image_dir_name = "image_2"
     labels_dir_name = "label_2"
     calibs_dir_name = "calib"
-    _location = "training" if train else "testing"
+    _location = "training"
     _raw_folder = os.path.join(root, "Kitti", "raw")
     image_dir = os.path.join(_raw_folder, _location, image_dir_name)
-    if train:
-        labels_dir = os.path.join(_raw_folder, _location, labels_dir_name)
-        calibs_dir = os.path.join(_raw_folder, _location, calibs_dir_name)
+    labels_dir = os.path.join(_raw_folder, _location, labels_dir_name)
+    calibs_dir = os.path.join(_raw_folder, _location, calibs_dir_name)
     for img_file in os.listdir(image_dir):
         images.append(os.path.join(image_dir, img_file))
-        if train:
-            targets.append(os.path.join(labels_dir, f"{img_file.split('.')[0]}.txt"))
-            calibs.append(os.path.join(calibs_dir, f"{img_file.split('.')[0]}.txt"))
+        targets.append(os.path.join(labels_dir, f"{img_file.split('.')[0]}.txt"))
+        calibs.append(os.path.join(calibs_dir, f"{img_file.split('.')[0]}.txt"))
 
     dic = {}
     indexx = 0
@@ -392,9 +390,13 @@ def load_dataset_detectron2(root="..", train=True):
     shortest_width = 10000
 
     dataset_dicts = []
-    for idx in range(len(images)):
-        if idx == 200:
-            break
+    if train:
+        index_numbers = range(len(images) - 1000)
+    else:
+        index_numbers = range(len(images) - 1000, len(images))
+    for idx in index_numbers:
+        # if idx == 200:
+        #     break
         if idx % 100 == 0:
             print("{} loaded".format(idx))
         record = {}
@@ -408,9 +410,6 @@ def load_dataset_detectron2(root="..", train=True):
         if width < shortest_width:
             shortest_width = width
             print(shortest_width)
-        if not train:
-            dataset_dicts.append(record)
-            continue
 
         objs = []
 
@@ -436,10 +435,8 @@ def load_dataset_detectron2(root="..", train=True):
                     print("discard x out of bound")
                     print([float(x) for x in line[4:8]])
                     continue
-                if abs(float(line[6]) - float(line[4])) < 8 or abs(float(line[7]) - float(line[5])) < 8:
-                    # print([float(x) for x in line[4:8]])
-                    # print("discard box at {}".format(idx))
-                    continue
+                # if abs(float(line[6]) - float(line[4])) < 8 or abs(float(line[7]) - float(line[5])) < 8:
+                #     continue
                 base_3Dto2D, _, _, _ = computeBox3D([float(x) for x in line[8:15]], P2_rect)
                 DISCARD = True
                 if DISCARD:
