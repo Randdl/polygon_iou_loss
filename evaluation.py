@@ -2,6 +2,7 @@ import torch
 from detectron2.data.transforms import ResizeTransform
 from detectron2.structures import BoxMode, Instances, Boxes
 from matplotlib import pyplot as plt
+from sklearn.metrics import PrecisionRecallDisplay, average_precision_score
 
 TORCH_VERSION = ".".join(torch.__version__.split(".")[:2])
 CUDA_VERSION = torch.__version__.split("+")[-1]
@@ -222,48 +223,172 @@ class CustomEvaluator(DatasetEvaluator):
         #         base_iou = 1 - c_poly_loss(pred_bases.view(4, 2), gt_bases[max_iou, :].view(4, 2))
         #         base_ious[gt_classes[max_iou].item()].append(base_iou)
         #         boxes_ious[gt_classes[max_iou].item()].append(ious[max_iou])
-        for idx, inputs in enumerate(self.data_loader):
+        # for idx, inputs in enumerate(self.data_loader):
+        #     instance = inputs[0]['instances'].to(torch.device("cpu"))
+        #     gt_bases = instance.gt_bases
+        #     gt_boxes = instance.gt_boxes.tensor
+        #     gt_classes = instance.gt_classes
+        #     for i in range(gt_boxes.shape[0]):
+        #         ious = []
+        #         pred_bases = self._predictions[idx]['pred_bases'][:, 0:8]
+        #         pred_boxes = self._predictions[idx]['pred_boxes'].tensor[:, :]
+        #         score = self._predictions[idx]['scores']
+        #         keep = score > 0.5
+        #         pred_bases = pred_bases[keep, :]
+        #         pred_boxes = pred_boxes[keep, :]
+        #         for j in range(pred_boxes.shape[0]):
+        #             ious.append(bb_intersection_over_union(pred_boxes[j, :], gt_boxes[i, :]))
+        #         ious = np.array(ious)
+        #         max_iou = np.argmax(ious)
+        #         if ious[max_iou] < 0.1:
+        #             continue
+        #         base_iou = 1 - c_poly_loss(pred_bases[max_iou, :].view(4, 2), gt_bases[i, :].view(4, 2))
+        #         base_ious[gt_classes[max_iou].item()].append(base_iou)
+        #         boxes_ious[gt_classes[max_iou].item()].append(ious[max_iou])
+        #
+        # for i in range(9):
+        #     base_ious[i] = np.array(base_ious[i])
+        #     boxes_ious[i] = np.array(boxes_ious[i])
+        #     np.save("results2/iou {}.npy".format(i), base_ious[i])
+        #     print("{} : num: {} | AP: {} | "
+        #           "NoneZero: {} | NAP: {} | 0.5: {} | 0.7: {}".format(i, base_ious[i].shape, base_ious[i].mean(),
+        #                                           np.count_nonzero(base_ious[i]), base_ious[i][base_ious[i] > 0].mean(),
+        #                                                               np.count_nonzero(base_ious[i][base_ious[i] > 0.5]),
+        #                                                               np.count_nonzero(base_ious[i][base_ious[i] > 0.7])))
+        #     print("{} : boxes AP: {}".format(i, boxes_ious[i].mean()))
+        kitti_evaluator = KittiEval(self.data_loader, self._predictions)
+        kitti_evaluator.evaluate()
+        kitti_evaluator.accumulate()
+        return base_ious
+
+
+class KittiEval:
+    def __init__(self, gt, pt):
+        self.predictions = pt
+        self.ground_truth = gt
+        self.sorted_scores = {}
+        self.ious = {}
+        self.gtms = {}
+        self.ptms = {}
+        self.bases_ptms = {}
+
+    def evaluate(self):
+        threshold = 0.5
+        for idx, inputs in enumerate(self.ground_truth):
             instance = inputs[0]['instances'].to(torch.device("cpu"))
             gt_bases = instance.gt_bases
             gt_boxes = instance.gt_boxes.tensor
             gt_classes = instance.gt_classes
-            for i in range(gt_boxes.shape[0]):
-                ious = []
-                pred_bases = self._predictions[idx]['pred_bases'][:, 0:8]
-                pred_boxes = self._predictions[idx]['pred_boxes'].tensor[:, :]
-                score = self._predictions[idx]['scores']
-                keep = score > 0.5
-                pred_bases = pred_bases[keep, :]
-                pred_boxes = pred_boxes[keep, :]
-                for j in range(pred_boxes.shape[0]):
-                    ious.append(bb_intersection_over_union(pred_boxes[j, :], gt_boxes[i, :]))
-                ious = np.array(ious)
-                max_iou = np.argmax(ious)
-                if ious[max_iou] < 0.1:
+
+            pred_bases = self.predictions[idx]['pred_bases'][:, 0:8]
+            pred_boxes = self.predictions[idx]['pred_boxes'].tensor[:, :]
+            score = self.predictions[idx]['scores']
+            sort_pred = np.argsort(-score)
+            pred_bases = pred_bases[sort_pred, :]
+            pred_boxes = pred_boxes[sort_pred, :]
+            score = score[sort_pred]
+            self.sorted_scores[idx] = score
+
+            sort_pred = np.argsort(-score)
+            pred_bases = pred_bases[sort_pred, :]
+            pred_boxes = pred_boxes[sort_pred, :]
+            score = score[sort_pred]
+
+            gtIds = range(gt_classes.shape[0])
+            ptIds = range(score.shape[0])
+
+            G = len(gtIds)
+            D = len(ptIds)
+            img_ious = np.zeros((D, G))
+            for pind in ptIds:
+                for gind in gtIds:
+                    img_ious[pind, gind] = self.computeIoU(pred_boxes[pind, :], gt_boxes[gind, :])
+            gtm = np.zeros(G)
+            ptm = np.zeros(D)
+            bases_ptm = np.zeros(D)
+
+            t = threshold
+            for pind in ptIds:
+                iou = min([t, 1 - 1e-10])
+                m = -1
+                for gind in gtIds:
+                    if gtm[gind] > 0:
+                        continue
+                    if img_ious[pind, gind] < iou:
+                        continue
+                    iou = img_ious[pind, gind]
+                    m = gind
+                if m == -1:
                     continue
-                base_iou = 1 - c_poly_loss(pred_bases[max_iou, :].view(4, 2), gt_bases[i, :].view(4, 2))
-                base_ious[gt_classes[max_iou].item()].append(base_iou)
-                boxes_ious[gt_classes[max_iou].item()].append(ious[max_iou])
+                ptm[pind] = m
+                gtm[m] = pind
+                bases_ptm[pind] = 1 \
+                    if 1 - c_poly_loss(pred_bases[pind, :].view(4, 2), gt_bases[m, :].view(4, 2)) > t \
+                    else 0
+            self.ious[idx] = img_ious
+            self.gtms[idx] = gtm
+            self.ptms[idx] = ptm
+            self.bases_ptms[idx] = bases_ptm
 
-        for i in range(9):
-            base_ious[i] = np.array(base_ious[i])
-            boxes_ious[i] = np.array(boxes_ious[i])
-            np.save("results2/iou {}.npy".format(i), base_ious[i])
-            print("{} : num: {} | AP: {} | "
-                  "NoneZero: {} | NAP: {} | 0.5: {} | 0.7: {}".format(i, base_ious[i].shape, base_ious[i].mean(),
-                                                  np.count_nonzero(base_ious[i]), base_ious[i][base_ious[i] > 0].mean(),
-                                                                      np.count_nonzero(base_ious[i][base_ious[i] > 0.5]),
-                                                                      np.count_nonzero(base_ious[i][base_ious[i] > 0.7])))
-            print("{} : boxes AP: {}".format(i, boxes_ious[i].mean()))
-        return base_ious
+    def computeIoU(self, pt, gt):
+        return bb_intersection_over_union(pt, gt)
+
+    def accumulate(self):
+        ptm = np.concatenate([v for e, v in self.ptms.items()])
+        gtm = np.concatenate([v for e, v in self.gtms.items()])
+        scores = np.concatenate([v for e, v in self.sorted_scores.items()])
+        bases_ptm = np.concatenate([v for e, v in self.bases_ptms.items()])
+        ngtm = gtm.shape[0]
+
+        sorted_orders = np.argsort(-scores)
+        scores = scores[sorted_orders]
+        ptm = ptm[sorted_orders]
+        bases_ptm = bases_ptm[sorted_orders]
+        ptm[ptm > 0] = 1
+
+        tps = ptm
+        bases_tps = bases_ptm
+        fps = np.logical_not(tps)
+        bases_fps = np.logical_not(bases_tps)
+        tp_sum = np.cumsum(tps, axis=0).astype(dtype=float)
+        fp_sum = np.cumsum(fps, axis=0).astype(dtype=float)
+        bases_tp_sum = np.cumsum(bases_tps, axis=0).astype(dtype=float)
+        bases_fp_sum = np.cumsum(bases_fps, axis=0).astype(dtype=float)
+        recall = tp_sum / ngtm
+        precision = tp_sum / (tp_sum + fp_sum)
+        bases_recall = bases_tp_sum / ngtm
+        bases_precision = bases_tp_sum / (bases_tp_sum + bases_fp_sum)
+
+        plt.xlabel("Recall")
+        plt.ylabel("Precision")
+        plt.plot(recall, precision)
+        plt.title("boxes AP curve")
+        plt.show()
+
+        plt.xlabel("Recall")
+        plt.ylabel("Precision")
+        plt.plot(bases_recall, bases_precision)
+        plt.title("bases AP curve")
+        plt.show()
+
+        mAP = average_precision_score(tps, scores)
+        bases_mAP = average_precision_score(bases_tps, scores)
+        print("boxes mAP: {} | bases mAP: {}".format(mAP, bases_mAP))
+        # display = PrecisionRecallDisplay.from_predictions(tps, scores, name="boxes AP")
+        # _ = display.ax_.set_title("boxes AP curve")
+        # plt.show()
+        # display = PrecisionRecallDisplay.from_predictions(bases_ptm, scores, name="bases AP")
+        # _ = display.ax_.set_title("bases AP curve")
+        # plt.show()
 
 
-DatasetCatalog.register("Kitti_train", lambda: load_dataset_detectron2())
+
+DatasetCatalog.register("Kitti_test", lambda: load_dataset_detectron2(train=False))
 
 cfg = get_cfg()
 cfg.merge_from_file("configs/base_detection_faster_rcnn.yaml")
 cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5
-cfg.DATASETS.TRAIN = ("Kitti_train",)
+cfg.DATASETS.TRAIN = ("Kitti_test",)
 cfg.DATALOADER.NUM_WORKERS = 0
 
 predictor = DefaultPredictor(cfg)
@@ -274,6 +399,6 @@ checkpointer.load("results/discard negative base train from scratch/model_001999
 # checkpointer.load("output/model_final.pth")
 
 # evaluator = COCOEvaluator("Kitti_train", output_dir="./output", tasks="bbox", distributed=False)
-val_loader = build_detection_test_loader(cfg, "Kitti_train", mapper=mapper)
+val_loader = build_detection_test_loader(cfg, "Kitti_test", mapper=mapper)
 evaluator = CustomEvaluator(val_loader)
 result = inference_on_dataset(model, val_loader, evaluator)
