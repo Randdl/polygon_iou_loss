@@ -143,22 +143,22 @@ def fast_rcnn_inference_single_image(
 
     scores = scores[:, :-1]
     num_bbox_reg_classes = boxes.shape[1] // 4
-    print("num_bbox_reg_classes: ", num_bbox_reg_classes)
+    # print("num_bbox_reg_classes: ", num_bbox_reg_classes)
     # Convert to Boxes to use the `clip` function ...
     boxes = Boxes(boxes.reshape(-1, 4))
     boxes.clip(image_shape)
-    print("image_shape: ", image_shape)
-    print(boxes.tensor.shape)
-    print(bases.shape)
+    # print("image_shape: ", image_shape)
+    # print(boxes.tensor.shape)
+    # print(bases.shape)
     boxes = boxes.tensor.view(-1, num_bbox_reg_classes, 4)  # R x C x 4
-    print(boxes.shape)
+    # print(boxes.shape)
     bases = bases.view(-1, num_bbox_reg_classes, 6)
-    print(bases.shape)
+    # print(bases.shape)
 
     # 1. Filter results based on detection scores. It can make NMS more efficient
     #    by filtering out low-confidence detections.
     filter_mask = scores > score_thresh  # R x K
-    print(filter_mask.shape)
+    # print(filter_mask.shape)
     # R' x 2. First column contains indices of the R predictions;
     # Second column contains indices of classes.
     filter_inds = filter_mask.nonzero()
@@ -184,8 +184,8 @@ def fast_rcnn_inference_single_image(
     result.pred_boxes = Boxes(boxes)
     result.scores = scores
     result.pred_classes = filter_inds[:, 1]
-    print(image_shape)
-    print(result)
+    # print(image_shape)
+    # print(result)
     return result, filter_inds[:, 0]
 
 
@@ -860,14 +860,14 @@ class NewFastRCNNOutputLayers(nn.Module):
             proposal_deltas,
             proposal_boxes,
         )  # Nx(KxB)
-        print("boxes:", predict_boxes.shape)
+        # print("boxes:", predict_boxes.shape)
         return predict_boxes.split(num_prop_per_image)
 
     def predict_bases(
             self, pred_bases: torch.Tensor, proposals: List[Instances]
     ):
         num_inst_per_image = [len(p) for p in proposals]
-        print("bases:", pred_bases.shape)
+        # print("bases:", pred_bases.shape)
         return pred_bases.split(num_inst_per_image, dim=0)
 
     def predict_probs(

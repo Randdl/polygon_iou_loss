@@ -344,6 +344,7 @@ class KittiEval:
         scores = scores[sorted_orders]
         ptm = ptm[sorted_orders]
         bases_ptm = bases_ptm[sorted_orders]
+        print(bases_ptm)
         ptm[ptm > 0] = 1
 
         tps = ptm
