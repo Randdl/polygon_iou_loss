@@ -4,3 +4,8 @@ output/
 *.pth
 *.pt
 __pycache__/
+results/
+results2/
+testing/
+images/
+model_param/

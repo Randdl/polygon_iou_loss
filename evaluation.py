@@ -36,8 +36,8 @@ from detectron2.data import build_detection_test_loader
 
 from data.Kitti import load_dataset_detectron2
 from data.Kittidataloader import KittiDatasetMapper
-from detectron2_custom_model import CustomROIHeads
-from new_model import delta_to_bases
+from custom_roi_heads import CustomROIHeads
+from custom_fastrcnn import delta_to_bases
 
 import json
 from polyogn_iou_loss import c_poly_loss

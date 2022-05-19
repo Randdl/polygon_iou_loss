@@ -33,8 +33,8 @@ from detectron2.data import detection_utils as utils
 
 from data.Kitti import load_dataset_detectron2
 from data.Kittidataloader import KittiDatasetMapper
-from detectron2_custom_model import CustomROIHeads
-from new_model import delta_to_bases
+from custom_roi_heads import CustomROIHeads
+from custom_fastrcnn import delta_to_bases
 
 import json
 
@@ -49,11 +49,11 @@ cfg.DATALOADER.NUM_WORKERS = 0
 predictor = DefaultPredictor(cfg)
 
 checkpointer = DetectionCheckpointer(predictor.model, save_dir="model_param")
-# checkpointer.load("results/train center/model_final.pth")
-checkpointer.load("output/model_final.pth")
+checkpointer.load("results/discard negative base train from scratch/model_0019999.pth")
+# checkpointer.load("output/model_final.pth")
 
-# im = cv2.imread("images/000001.png")
-im = cv2.imread("testing/000003.png")
+im = cv2.imread("images/000004.png")
+# im = cv2.imread("testing/cartoon_cars.png")
 # print(im.shape)
 # plt.figure(figsize=(15, 7.5))
 # plt.imshow(im[..., ::-1])
@@ -65,6 +65,7 @@ out = v.draw_instance_predictions(outputs["instances"].to("cpu"))
 # print(out.get_image()[..., ::-1][..., ::-1])
 plt.figure(figsize=(20, 10))
 plt.imshow(out.get_image()[..., ::-1][..., ::-1])
+print(outputs["instances"])
 bases = outputs["instances"].pred_bases.to("cpu")
 boxes = outputs["instances"].pred_boxes.to("cpu").tensor
 # print(outputs["instances"])
