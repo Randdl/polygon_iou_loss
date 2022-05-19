@@ -151,7 +151,7 @@ class CustomRetinaNet(nn.Module):
         backbone = build_backbone(cfg)
         backbone_shape = backbone.output_shape()
         feature_shapes = [backbone_shape[f] for f in cfg.MODEL.RETINANET.IN_FEATURES]
-        head = RetinaNetHead(cfg, feature_shapes)
+        head = CustomRetinaNetHead(cfg, feature_shapes)
         anchor_generator = build_anchor_generator(cfg, feature_shapes)
         return {
             "backbone": backbone,
@@ -244,10 +244,11 @@ class CustomRetinaNet(nn.Module):
         features = [features[f] for f in self.head_in_features]
 
         anchors = self.anchor_generator(features)
-        pred_logits, pred_anchor_deltas = self.head(features)
+        pred_logits, pred_anchor_deltas, pred_base_deltas = self.head(features)
         # Transpose the Hi*Wi*A dimension to the middle:
         pred_logits = [permute_to_N_HWA_K(x, self.num_classes) for x in pred_logits]
         pred_anchor_deltas = [permute_to_N_HWA_K(x, 4) for x in pred_anchor_deltas]
+        pred_base_deltas = [permute_to_N_HWA_K(x, 6) for x in pred_base_deltas]
 
         if self.training:
             assert "instances" in batched_inputs[0], "Instance annotations are missing in training!"
@@ -521,6 +522,7 @@ class CustomRetinaNetHead(nn.Module):
 
         cls_subnet = []
         bbox_subnet = []
+        base_subnet = []
         for in_channels, out_channels in zip([input_shape[0].channels] + conv_dims, conv_dims):
             cls_subnet.append(
                 nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
@@ -531,21 +533,30 @@ class CustomRetinaNetHead(nn.Module):
             bbox_subnet.append(
                 nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
             )
+            base_subnet.append(
+                nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
+            )
             if norm:
                 bbox_subnet.append(get_norm(norm, out_channels))
+                basex_subnet.append(get_norm(norm, out_channels))
             bbox_subnet.append(nn.ReLU())
+            base_subnet.append(get_norm(norm, out_channels))
 
         self.cls_subnet = nn.Sequential(*cls_subnet)
         self.bbox_subnet = nn.Sequential(*bbox_subnet)
+        self.base_subnet = nn.Sequential(*base_subnet)
         self.cls_score = nn.Conv2d(
             conv_dims[-1], num_anchors * num_classes, kernel_size=3, stride=1, padding=1
         )
         self.bbox_pred = nn.Conv2d(
             conv_dims[-1], num_anchors * 4, kernel_size=3, stride=1, padding=1
         )
+        self.base_pred = nn.Conv2d(
+            conv_dims[-1], num_anchors * 6, kernel_size=3, stride=1, padding=1
+        )
 
         # Initialization
-        for modules in [self.cls_subnet, self.bbox_subnet, self.cls_score, self.bbox_pred]:
+        for modules in [self.cls_subnet, self.bbox_subnet, self.base_subnet, self.cls_score, self.bbox_pred, self.base_pred]:
             for layer in modules.modules():
                 if isinstance(layer, nn.Conv2d):
                     torch.nn.init.normal_(layer.weight, mean=0, std=0.01)
@@ -590,7 +601,9 @@ class CustomRetinaNetHead(nn.Module):
         """
         logits = []
         bbox_reg = []
+        base_reg = []
         for feature in features:
             logits.append(self.cls_score(self.cls_subnet(feature)))
             bbox_reg.append(self.bbox_pred(self.bbox_subnet(feature)))
-        return logits, bbox_reg
+            base_reg.append(self.base_pred(self.base_subnet(feature)))
+        return logits, bbox_reg, base_reg
