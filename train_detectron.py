@@ -8,6 +8,7 @@ print("torch: ", TORCH_VERSION, "; cuda: ", CUDA_VERSION)
 
 import detectron2
 from detectron2.utils.logger import setup_logger
+
 setup_logger()
 
 # import some common libraries
@@ -31,12 +32,11 @@ from detectron2.data import detection_utils as utils
 
 from data.Kitti import load_dataset_detectron2
 from data.Kittidataloader import KittiDatasetMapper
-from detectron2_custom_model import CustomROIHeads
+from custom_roi_heads import CustomROIHeads
 
-import json
 
 def transform_instance_annotations(
-    annotation, transforms, image_size, *, keypoint_hflip_indices=None
+        annotation, transforms, image_size, *, keypoint_hflip_indices=None
 ):
     """
     Apply transforms to box, segmentation and keypoints annotations of a single instance.
@@ -127,12 +127,14 @@ def mapper(dataset_dict):
         for annotation in dataset_dict.pop("annotations")
     ]
     return {
-       # create the format that the model expects
+        # create the format that the model expects
+        "image_id": dataset_dict["image_id"],
         "width": dataset_dict["width"],
         "height": dataset_dict["height"],
-       "image": image,
-       "instances": annotations_to_instances(annos, image.shape[1:])
+        "image": image,
+        "instances": annotations_to_instances(annos, image.shape[1:])
     }
+
 
 class Trainer(DefaultTrainer):
     """
@@ -150,25 +152,28 @@ class Trainer(DefaultTrainer):
 
 # dataset_train = load_dataset_detectron2(root='..')
 # print(dataset_train[0])
-d="train"
-e=".."
+d = "train"
+e = ".."
 DatasetCatalog.register("Kitti_" + d, lambda: load_dataset_detectron2())
 DatasetCatalog.register("Kitti_test", lambda: load_dataset_detectron2(train=False))
 # MetadataCatalog.get("Kitti_" + d).set(thing_classes=["balloon"])
 # balloon_metadata = MetadataCatalog.get("balloon_train")
 
 from detectron2.engine import DefaultTrainer
+
 cfg = get_cfg()
 # cfg.merge_from_file(model_zoo.get_config_file("COCO-Detection/faster_rcnn_R_50_FPN_1x.yaml"))
 cfg.merge_from_file("configs/base_detection_faster_rcnn.yaml")
-cfg.DATASETS.TRAIN = ("Kitti_train",)
-cfg.DATASETS.TEST = ()
-cfg.DATALOADER.NUM_WORKERS = 0
+# cfg.DATASETS.TRAIN = ("Kitti_train",)
+# cfg.DATASETS.TEST = ()
+# cfg.DATALOADER.NUM_WORKERS = 0
 # cfg.MODEL.WEIGHTS = model_zoo.get_checkpoint_url("COCO-Detection/faster_rcnn_R_50_FPN_1x.yaml")  # Let training initialize from model zoo
-cfg.SOLVER.IMS_PER_BATCH = 4
-# cfg.SOLVER.BASE_LR = 0.00025  # pick a good LR
-cfg.SOLVER.MAX_ITER = 50    # 300 iterations seems good enough for this toy dataset; you will need to train longer for a practical dataset
-# cfg.SOLVER.STEPS = []        # do not decay learning rate
+# cfg.SOLVER.IMS_PER_BATCH = 4
+# cfg.SOLVER.BASE_LR = 0.0001  # pick a good LR
+# cfg.SOLVER.MAX_ITER = 1500  # 300 iterations seems good enough for this toy dataset; you will need to train longer for a practical dataset
+# cfg.SOLVER.WARMUP_FACTOR = 1.0 / 100
+# cfg.SOLVER.WARMUP_ITERS = 100
+# cfg.SOLVER.STEPS = [500, 1000]  # do not decay learning rate
 # cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE = 16   # faster, and good enough for this toy dataset (default: 512)
 # cfg.MODEL.ROI_HEADS.NUM_CLASSES = 9  # only has one class (ballon). (see https://detectron2.readthedocs.io/tutorials/datasets.html#update-the-config-for-new-datasets)
 # NOTE: this config means the number of classes, but a few popular unofficial tutorials incorrect uses num_classes+1 here.
@@ -177,8 +182,8 @@ os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
 # trainer = DefaultTrainer(cfg)
 trainer = Trainer(cfg)
 trainer.resume_or_load(resume=False)
-checkpointer = DetectionCheckpointer(trainer.model, save_dir="model_param")
-checkpointer.load("results/model_final.pth")
+# checkpointer = DetectionCheckpointer(trainer.model, save_dir="model_param")
+# checkpointer.load("output/model_final.pth")
 trainer.train()
-checkpointer = DetectionCheckpointer(trainer.model, save_dir="model_param")
-checkpointer.save("faster_rcnn_res50_l2_90000_iters")
+# checkpointer = DetectionCheckpointer(trainer.model, save_dir="model_param")
+# checkpointer.save("faster_rcnn_res50_l2_90000_iters")
