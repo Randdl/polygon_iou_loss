@@ -24,6 +24,44 @@ from detectron2.evaluation import CityscapesSemSegEvaluator, DatasetEvaluators, 
 from detectron2.projects.deeplab import add_deeplab_config, build_lr_scheduler
 from detectron2.data import detection_utils as utils
 
+
+def bases_to_delta(anchors, gt_bases):
+    x1 = anchors[:, 0]
+    y1 = anchors[:, 1]
+    x2 = anchors[:, 2]
+    y2 = anchors[:, 3]
+    proposal_midx = (x1 + x2) / 2
+    proposal_midy = (y1 + y2) / 2
+    dx = x2 - x1
+    dy = y2 - y1
+    gt_bases_midx = (gt_bases[:, 0] + gt_bases[:, 2] + gt_bases[:, 4] + gt_bases[:, 6]) / 4
+    gt_bases_midy = (gt_bases[:, 1] + gt_bases[:, 3] + gt_bases[:, 5] + gt_bases[:, 7]) / 4
+    gt_bases_midx1 = gt_bases[:, 0]
+    gt_bases_midy1 = gt_bases[:, 1]
+    gt_bases_midx2 = gt_bases[:, 2]
+    gt_bases_midy2 = gt_bases[:, 3]
+
+    gt_bases_midx1 = gt_bases_midx1 - gt_bases_midx
+    gt_bases_midy1 = gt_bases_midy1 - gt_bases_midy
+    gt_bases_midx2 = gt_bases_midx2 - gt_bases_midx
+    gt_bases_midy2 = gt_bases_midy2 - gt_bases_midy
+
+    gt_bases_midx = gt_bases_midx - proposal_midx
+    gt_bases_midy = gt_bases_midy - proposal_midy
+    gt_bases_midx = gt_bases_midx / dx
+    gt_bases_midy = gt_bases_midy / dy
+    gt_bases_mid = torch.stack((gt_bases_midx, gt_bases_midy), dim=1)
+
+    gt_bases_midx1 = gt_bases_midx1 / dx
+    gt_bases_midy1 = gt_bases_midy1 / dy
+    gt_bases_midx2 = gt_bases_midx2 / dx
+    gt_bases_midy2 = gt_bases_midy2 / dy
+
+    gt_bases_delta = torch.stack((gt_bases_midx, gt_bases_midy, gt_bases_midx1, gt_bases_midy1,
+                                  gt_bases_midx2, gt_bases_midy2), dim=1)
+    return gt_bases_delta
+
+
 def transform_instance_annotations(
         annotation, transforms, image_size, *, keypoint_hflip_indices=None
 ):

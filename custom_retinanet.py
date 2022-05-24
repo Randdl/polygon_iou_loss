@@ -255,7 +255,7 @@ class CustomRetinaNet(nn.Module):
             gt_instances = [x["instances"].to(self.device) for x in batched_inputs]
 
             gt_labels, gt_boxes = self.label_anchors(anchors, gt_instances)
-            losses = self.losses(anchors, pred_logits, gt_labels, pred_anchor_deltas, gt_boxes)
+            losses = self.losses(anchors, pred_logits, gt_labels, pred_anchor_deltas, gt_boxes, pred_base_deltas)
 
             if self.vis_period > 0:
                 storage = get_event_storage()
@@ -267,7 +267,7 @@ class CustomRetinaNet(nn.Module):
 
             return losses
         else:
-            results = self.inference(anchors, pred_logits, pred_anchor_deltas, images.image_sizes)
+            results = self.inference(anchors, pred_logits, pred_anchor_deltas, pred_base_deltas, images.image_sizes)
             processed_results = []
             for results_per_image, input_per_image, image_size in zip(
                 results, batched_inputs, images.image_sizes
@@ -278,7 +278,7 @@ class CustomRetinaNet(nn.Module):
                 processed_results.append({"instances": r})
             return processed_results
 
-    def losses(self, anchors, pred_logits, gt_labels, pred_anchor_deltas, gt_boxes):
+    def losses(self, anchors, pred_logits, gt_labels, pred_anchor_deltas, gt_boxes, pred_base_deltas):
         """
         Args:
             anchors (list[Boxes]): a list of #feature level Boxes
@@ -298,7 +298,7 @@ class CustomRetinaNet(nn.Module):
         num_images = len(gt_labels)
         gt_labels = torch.stack(gt_labels)  # (N, R)
         anchors = type(anchors[0]).cat(anchors).tensor  # (R, 4)
-        gt_anchor_deltas = [self.box2box_transform.get_deltas(anchors, k) for k in gt_boxes]
+        gt_anchor._deltas = [self.box2box_transform.get_deltas(anchors, k) for k in gt_boxes]
         gt_anchor_deltas = torch.stack(gt_anchor_deltas)  # (N, R, 4)
 
         valid_mask = gt_labels >= 0
@@ -368,6 +368,7 @@ class CustomRetinaNet(nn.Module):
 
         gt_labels = []
         matched_gt_boxes = []
+        matched_gt_bases = []
         for gt_per_image in gt_instances:
             match_quality_matrix = pairwise_iou(gt_per_image.gt_boxes, anchors)
             matched_idxs, anchor_labels = self.anchor_matcher(match_quality_matrix)
@@ -375,6 +376,7 @@ class CustomRetinaNet(nn.Module):
 
             if len(gt_per_image) > 0:
                 matched_gt_boxes_i = gt_per_image.gt_boxes.tensor[matched_idxs]
+                matched_gt_bases_i = gt_per_image.gt_bases[matched_idxs]
 
                 gt_labels_i = gt_per_image.gt_classes[matched_idxs]
                 # Anchors with label 0 are treated as background.
@@ -383,14 +385,17 @@ class CustomRetinaNet(nn.Module):
                 gt_labels_i[anchor_labels == -1] = -1
             else:
                 matched_gt_boxes_i = torch.zeros_like(anchors.tensor)
+                # need to change it
+                matched_gt_bases_i = torch.zeros_like(anchors.tensor)
                 gt_labels_i = torch.zeros_like(matched_idxs) + self.num_classes
 
             gt_labels.append(gt_labels_i)
             matched_gt_boxes.append(matched_gt_boxes_i)
+            matched_gt_bases.append(matched_gt_bases_i)
 
-        return gt_labels, matched_gt_boxes
+        return gt_labels, matched_gt_boxes, matched_gt_bases
 
-    def inference(self, anchors, pred_logits, pred_anchor_deltas, image_sizes):
+    def inference(self, anchors, pred_logits, pred_anchor_deltas, pred_base_deltas, image_sizes):
         """
         Arguments:
             anchors (list[Boxes]): A list of #feature level Boxes.
@@ -538,7 +543,7 @@ class CustomRetinaNetHead(nn.Module):
             )
             if norm:
                 bbox_subnet.append(get_norm(norm, out_channels))
-                basex_subnet.append(get_norm(norm, out_channels))
+                base_subnet.append(get_norm(norm, out_channels))
             bbox_subnet.append(nn.ReLU())
             base_subnet.append(get_norm(norm, out_channels))
 
