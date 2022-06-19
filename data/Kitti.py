@@ -464,7 +464,7 @@ def load_dataset_detectron2(root="..", train=True, test=False):
                     "iscrowd": 0,
                     "bbox": [float(x) for x in line[4:8]],
                     "bbox_mode": BoxMode.XYXY_ABS,
-                    "category_id": dic[line[0]],
+                    "category_id": category_id,
                     "base": base_3Dto2D,
                     "h": corners_2D[1, 2] - corners_2D[1, 0],
                 }
