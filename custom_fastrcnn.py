@@ -249,6 +249,8 @@ class FastRCNNOutputs:
                 self.gt_boxes = box_type.cat([p.gt_boxes for p in proposals])
                 assert proposals[0].has("gt_classes")
                 self.gt_classes = cat([p.gt_classes for p in proposals], dim=0)
+                assert proposals[0].has("gt_h")
+                self.gt_h = cat([p.gt_h for p in proposals], dim=0)
                 assert proposals[0].has("gt_bases")
                 self.gt_bases = cat([p.gt_bases for p in proposals], dim=0)
         else:
@@ -377,7 +379,7 @@ class FastRCNNOutputs:
 
         # print(self.gt_bases.shape)
         # box_dim = self.gt_bases.size(1)  # 4 or 5
-        box_dim = 6  # 4 or 5
+        box_dim = 7  # 4 or 5
         device = self.pred_bases.device
 
         bg_class_ind = self.pred_class_logits.shape[1] - 1
@@ -479,8 +481,10 @@ class FastRCNNOutputs:
         gt_bases_midx2 = gt_bases_midx2 / dx
         gt_bases_midy2 = gt_bases_midy2 / dy
 
+        gt_h_delta = (self.gt_h - dy) / dy
+
         gt_bases_delta = torch.stack((gt_bases_midx, gt_bases_midy, gt_bases_midx1, gt_bases_midy1,
-                                      gt_bases_midx2, gt_bases_midy2), dim=1)
+                                      gt_bases_midx2, gt_bases_midy2, gt_h_delta), dim=1)
         # print(gt_bases_delta[fg_inds][0, :])
         # print(self.pred_bases[fg_inds[:, None], gt_class_cols][0, :])
 
@@ -647,7 +651,7 @@ class NewFastRCNNOutputLayers(nn.Module):
         box_dim = len(box2box_transform.weights)
         self.bbox_pred = Linear(input_size, num_bbox_reg_classes * box_dim)
         # modified
-        self.base_pred = Linear(input_size, num_bbox_reg_classes * 6)
+        self.base_pred = Linear(input_size, num_bbox_reg_classes * 7)
 
         nn.init.normal_(self.cls_score.weight, std=0.01)
         nn.init.normal_(self.bbox_pred.weight, std=0.001)

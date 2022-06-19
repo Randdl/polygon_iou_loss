@@ -60,6 +60,7 @@ def computeBox3D(label, P):
 
     # bounding box in object co-ordinate
     corners_3D = np.array([x_corners, y_corners, z_corners])
+    object_3D = corners_3D.copy()
     # print ( 'corners_3d', corners_3D.shape, corners_3D)
 
     # rotate
@@ -83,6 +84,7 @@ def computeBox3D(label, P):
     bb2d_lines_verts = corners_2D[:, bb3d_lines_verts_idx]  #
 
     corners_2D = corners_2D[:2]
+    # print(corners_2D)
     base_indices = [2, 3, 6, 7]
     base_3Dto2D = corners_2D[:, base_indices]
     y_sort = np.argsort(base_3Dto2D[1, :])
@@ -281,7 +283,8 @@ class Kitti(VisionDataset):
                         # "occluded": int(line[2]),
                         # "alpha": float(line[3]),
                         "base": base_3Dto2D,
-                        "corners": corners_2D,
+                        "h": corners_2D[1:0] - corners_2D[1:2],
+                        "corners": corners_3D,
                         "bbox": [float(x) for x in line[4:8]],
                         # "dimensions": [float(x) for x in line[8:11]],
                         # "location": [float(x) for x in line[11:14]],
@@ -359,7 +362,7 @@ class Kitti(VisionDataset):
         plt.show()
 
 
-def load_dataset_detectron2(root="..", train=True):
+def load_dataset_detectron2(root="..", train=True, test=False):
     images = []
     targets = []
     calibs = []
@@ -395,8 +398,8 @@ def load_dataset_detectron2(root="..", train=True):
     else:
         index_numbers = range(len(images) - 1000, len(images))
     for idx in index_numbers:
-        # if idx == 200:
-        #     break
+        if idx == 200 and test:
+            break
         if idx % 100 == 0:
             print("{} loaded".format(idx))
         record = {}
@@ -437,7 +440,7 @@ def load_dataset_detectron2(root="..", train=True):
                     continue
                 # if abs(float(line[6]) - float(line[4])) < 8 or abs(float(line[7]) - float(line[5])) < 8:
                 #     continue
-                base_3Dto2D, _, _, _ = computeBox3D([float(x) for x in line[8:15]], P2_rect)
+                base_3Dto2D, corners_2D, _, _ = computeBox3D([float(x) for x in line[8:15]], P2_rect)
                 DISCARD = True
                 if DISCARD:
                     # print(base_3Dto2D < 0 or base_3Dto2D > 1222)
@@ -455,6 +458,7 @@ def load_dataset_detectron2(root="..", train=True):
                     "bbox_mode": BoxMode.XYXY_ABS,
                     "category_id": dic[line[0]],
                     "base": base_3Dto2D,
+                    "h": corners_2D[1, 2] - corners_2D[1, 0],
                 }
                 if float(line[4]) < 1:
                     obj["bbox"][0] = 1

@@ -41,7 +41,7 @@ MODEL:
   WEIGHTS: "detectron2://ImageNetPretrained/MSRA/R-50.pkl"
   MASK_ON: False
 DATASETS:
-  TRAIN: ("Kitti_train",)
+  TRAIN: ("Kitti_train_test",)
   TEST: ()
 SOLVER:
   IMS_PER_BATCH: 4
