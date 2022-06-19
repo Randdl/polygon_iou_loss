@@ -29,7 +29,7 @@ MODEL:
     NAME: "CustomROIHeads"
     IN_FEATURES: ["p2", "p3", "p4", "p5"]
 #    BATCH_SIZE_PER_IMAGE: 512
-    NUM_CLASSES: 9
+    NUM_CLASSES: 3
   ROI_BOX_HEAD:
     NAME: "FastRCNNConvFCHead"
     NUM_FC: 2

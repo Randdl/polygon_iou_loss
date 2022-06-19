@@ -452,6 +452,14 @@ def load_dataset_detectron2(root="..", train=True, test=False):
                         # print("discard negative base")
                         # print(base_3Dto2D)
                         continue
+                if line[0] == 'Car':
+                    category_id = 0
+                elif line[0] == 'Pedestrian':
+                    category_id = 1
+                elif line[0] == 'Cyclist':
+                    category_id = 2
+                else:
+                    continue
                 obj = {
                     "iscrowd": 0,
                     "bbox": [float(x) for x in line[4:8]],
