@@ -4,3 +4,4 @@
 
 4. change ground truth instead of preds
 5. try predict deltas A. from proposal and B. from boxes
+6. some ground truth 3d boxes have position of (-1000, -1000, -1000). Is it representation of not used labels.

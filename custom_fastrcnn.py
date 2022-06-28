@@ -87,6 +87,13 @@ def fast_rcnn_inference(
     return [x[0] for x in result_per_image], [x[1] for x in result_per_image]
 
 
+def delta_to_h(delta_h, boxes):
+    y1 = boxes[::, 1]
+    y2 = boxes[::, 3]
+    dy = y2 - y1
+    return dy + delta_h * dy
+
+
 def delta_to_bases(bases, boxes):
     midx = bases[::, 0]
     midy = bases[::, 1]
@@ -152,7 +159,7 @@ def fast_rcnn_inference_single_image(
     # print(bases.shape)
     boxes = boxes.tensor.view(-1, num_bbox_reg_classes, 4)  # R x C x 4
     # print(boxes.shape)
-    bases = bases.view(-1, num_bbox_reg_classes, 6)
+    bases = bases.view(-1, num_bbox_reg_classes, 7)
     # print(bases.shape)
 
     # 1. Filter results based on detection scores. It can make NMS more efficient
@@ -175,12 +182,16 @@ def fast_rcnn_inference_single_image(
         keep = keep[:topk_per_image]
     boxes, bases, scores, filter_inds = boxes[keep], bases[keep], scores[keep], filter_inds[keep]
 
+    h = bases[:, 6]
+    bases = bases[:, 0:6]
     bases = delta_to_bases(bases, boxes)
+    h = delta_to_h(h, boxes)
     # print(mid.shape)
     # print(mid)
 
     result = Instances(image_shape)
     result.pred_bases = bases
+    result.pred_h = h
     result.pred_boxes = Boxes(boxes)
     result.scores = scores
     result.pred_classes = filter_inds[:, 1]

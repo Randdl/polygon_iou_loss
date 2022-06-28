@@ -22,6 +22,12 @@ import detectron2.structures.instances
 from detectron2.structures import BoxMode
 
 
+def computeVelodyne(label, P):
+    corners = label - P[:, 3].reshape(3, 1)
+    corners = np.linalg.inv(P[:, 0:3]).dot(corners)
+    return corners
+
+
 def computeBox3D(label, P):
     '''
     takes an object label and a projection matrix (P) and projects the 3D
@@ -60,20 +66,26 @@ def computeBox3D(label, P):
 
     # bounding box in object co-ordinate
     corners_3D = np.array([x_corners, y_corners, z_corners])
+    # print(corners_3D)
     object_3D = corners_3D.copy()
     # print ( 'corners_3d', corners_3D.shape, corners_3D)
 
     # rotate
     corners_3D = R.dot(corners_3D)
+    # print(corners_3D)
     # print ( 'corners_3d', corners_3D.shape, corners_3D)
 
     # translate
     corners_3D += np.array([x, y, z]).reshape((3, 1))
+    # print(corners_3D.shape)
     # print ( 'corners_3d', corners_3D)
 
     corners_3D_1 = np.vstack((corners_3D, np.ones((corners_3D.shape[-1]))))
+    # print(corners_3D_1.shape)
     corners_2D = P.dot(corners_3D_1)
+    # print(corners_2D)
     corners_2D = corners_2D / corners_2D[2]
+    # print(corners_2D)
 
     # edges, lines 3d/2d bounding box in vertex index
     edges = [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [7, 0], [0, 5], [1, 4], [2, 7], [3, 6]]
@@ -223,6 +235,8 @@ class Kitti(VisionDataset):
     def _parse_corners(self, index, target, calib):
         corner = []
         P2_rect = calib['P2'].reshape(3, 4)
+        velo_to_cam = calib['Tr_velo_to_cam'].reshape(3, 4)
+        print(velo_to_cam)
         for single in target:
             base_3Dto2D, corners_2D, corners_3D, paths_2D = computeBox3D(single, P2_rect)
             corner.append(
@@ -271,11 +285,19 @@ class Kitti(VisionDataset):
                     key, value = line.split(':', 1)
                     calib[key] = np.array([float(x) for x in value.split()])
         P2_rect = calib['P2'].reshape(3, 4)
+        velo_to_cam = calib['Tr_velo_to_cam'].reshape(3, 4)
+        imu_to_velo = calib['Tr_imu_to_velo'].reshape(3, 4)
+        print(velo_to_cam)
+        print(imu_to_velo)
         target = []
         with open(self.targets[index]) as inp:
             content = csv.reader(inp, delimiter=" ")
             for line in content:
                 base_3Dto2D, corners_2D, corners_3D, paths_2D = computeBox3D([float(x) for x in line[8:15]], P2_rect)
+                corners_velo = computeVelodyne(corners_3D, velo_to_cam)
+                corners_imu = computeVelodyne(corners_velo, imu_to_velo)
+                print(corners_velo)
+                print(corners_imu)
                 target.append(
                     {
                         "type": self.dic[line[0]],
@@ -286,6 +308,7 @@ class Kitti(VisionDataset):
                         "h": corners_2D[1:0] - corners_2D[1:2],
                         "corners": corners_3D,
                         "bbox": [float(x) for x in line[4:8]],
+                        "3dbox": corners_2D,
                         # "dimensions": [float(x) for x in line[8:11]],
                         # "location": [float(x) for x in line[11:14]],
                         # "rotation_y": float(line[14]),
@@ -344,20 +367,20 @@ class Kitti(VisionDataset):
         image = sample['image']
         target = sample['target']
         for idx in range(len(target)):
-            base = target[idx]['base']
+            base = target[idx]['3dbox']
             bbox = target[idx]['bbox']
             corners = target[idx]['corners']
             print(target[idx]['type'])
             print(bbox)
             print(base)
             # plt.scatter(x=corners[0, :], y=corners[1, :], s=40, color="w")
-            plt.scatter(x=base[0, 0], y=base[1, 0], s=40, color="r")
+            plt.scatter(x=base[0, :], y=base[1, :], s=20, color="r")
             print(base[0, 0], base[1, 0])
-            plt.scatter(x=base[0, 1], y=base[1, 1], s=40, color="w")
-            plt.scatter(x=base[0, 2], y=base[1, 2], s=40, color="y")
-            plt.scatter(x=base[0, 3], y=base[1, 3], s=40, color="g")
-            plt.scatter(x=bbox[0], y=bbox[1], s=40, color="b")
-            plt.scatter(x=bbox[2], y=bbox[3], s=40, color="b")
+            # plt.scatter(x=base[0, 1], y=base[1, 1], s=20, color="w")
+            # plt.scatter(x=base[0, 2], y=base[1, 2], s=20, color="y")
+            # plt.scatter(x=base[0, 3], y=base[1, 3], s=20, color="g")
+            plt.scatter(x=bbox[0], y=bbox[1], s=20, color="b")
+            plt.scatter(x=bbox[2], y=bbox[3], s=20, color="b")
         plt.imshow(sample['image'])
         plt.show()
 
