@@ -25,6 +25,18 @@ from detectron2.projects.deeplab import add_deeplab_config, build_lr_scheduler
 from detectron2.data import detection_utils as utils
 
 
+def unproject_2d_to_3d(pt_2d, depth, P):
+    # pts_2d: 2
+    # depth: 1
+    # P: 3 x 4
+    # return: 3
+    z = depth - P[2, 3]
+    x = (pt_2d[0] * depth - P[0, 3] - P[0, 2] * z) / P[0, 0]
+    y = (pt_2d[1] * depth - P[1, 3] - P[1, 2] * z) / P[1, 1]
+    pt_3d = np.array([x, y, z], dtype=np.float32)
+    return pt_3d
+
+
 def bases_to_delta(anchors, gt_bases):
     x1 = anchors[:, 0]
     y1 = anchors[:, 1]
