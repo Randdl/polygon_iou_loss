@@ -108,7 +108,18 @@ def computeBox3D(label, P):
     x_sort_second = np.argsort(second_two[0, :])
     second_two = second_two[:, x_sort_second]
 
-    base_3Dto2D = np.concatenate((first_two, second_two), axis=1)
+    top_indices = [0, 1, 4, 5]
+    top_3Dto2D = corners_2D[:, top_indices]
+    y_sort = np.argsort(top_3Dto2D[1, :])
+    top_first_two = top_3Dto2D[:, y_sort[0:2]]
+    x_sort_first = np.argsort(top_first_two[0, :])
+    top_first_two = top_first_two[:, x_sort_first]
+
+    top_second_two = top_3Dto2D[:, y_sort[2:4]]
+    x_sort_second = np.argsort(top_second_two[0, :])
+    top_second_two = top_second_two[:, x_sort_second]
+
+    base_3Dto2D = np.concatenate((first_two, second_two, top_first_two, top_second_two), axis=1)
     # print(base_3Dto2D)
     return base_3Dto2D, corners_2D, corners_3D, bb2d_lines_verts[:2]
 

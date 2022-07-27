@@ -127,6 +127,10 @@ def c_poly_loss(poly1, poly2):
 
 
 def c_poly_diou_loss(poly1, poly2):
+    """
+    Calculate the distance iou loss between two convex polygons
+    poly1,poly2 - [n_vertices,2] tensor of x,y,coordinates for each convex polygon
+    """
     iou = c_poly_iou(poly1, poly2)
 
     # find the smallest 2d box that contains both polygons
@@ -219,16 +223,15 @@ def c_poly_giou(poly1, poly2):
     ag = (x_max - x_min) * (y_max - y_min)
 
     # find the area of intersection
+    a1 = poly_area(poly1)
+    a2 = poly_area(poly2)
     ai = poly_area(polyi)
-
-    # print("Poly 1 area: {}".format(a1))
-    # print("Poly 2 area: {}".format(a2))
-    # print("Intersection area: {}".format(ai))
-    giou = ai / (ag + 1e-10)
+    iou = ai / (a1 + a2 - ai + 1e-10)
+    giou_loss = 1 - iou + (ag - a1 - a2 + ai) / (ag + 1e-10)
 
     # plot_poly(polyi, color=(0, 0, 0), im=im, lines=True, text="Polygon IOU: {}".format(iou))
 
-    return giou
+    return giou_loss
 
 
 def clockify(polygon, clockwise=True):
