@@ -13,6 +13,7 @@ from detectron2.structures import Boxes, Instances
 from detectron2.utils.events import get_event_storage
 
 from polyogn_iou_loss import c_poly_diou_loss
+from fixed_polygon_iou_loss import batch_poly_diou_loss
 
 __all__ = ["fast_rcnn_inference", "FastRCNNOutputLayers"]
 
@@ -501,17 +502,20 @@ class FastRCNNOutputs:
             # preds = self.pred_bases[fg_inds[:, None], gt_class_cols]
             # print(preds.shape)
             gts = self.gt_bases[fg_inds]
-            loss_base_reg = 0
-            for idx in range(pred_bases_bottom.shape[0]):
-                poly_loss = c_poly_diou_loss(pred_bases_bottom[idx, :].view(4, 2), gts[idx, 0:8].view(4, 2))
-                # print(poly_loss)
-                loss_base_reg += poly_loss
-                poly_loss = c_poly_diou_loss(pred_bases_top[idx, :].view(4, 2), gts[idx, 8:16].view(4, 2))
-                loss_base_reg += poly_loss
+            loss_base_reg = batch_poly_diou_loss(pred_bases_bottom.view(-1, 4, 2), gts[:, 0:8].view(-1, 4, 2)).sum() \
+                            + batch_poly_diou_loss(pred_bases_bottom.view(-1, 4, 2), gts[:, 8:16].view(-1, 4, 2)).sum()
+            # print(loss_base_reg)
+            # loss_base_reg_loop = 0
+            # for idx in range(pred_bases_bottom.shape[0]):
+            #     poly_loss = c_poly_diou_loss(pred_bases_bottom[idx, :].view(4, 2), gts[idx, 0:8].view(4, 2))
+            #     # print(poly_loss)
+            #     loss_base_reg_loop += poly_loss
+            #     poly_loss = c_poly_diou_loss(pred_bases_top[idx, :].view(4, 2), gts[idx, 8:16].view(4, 2))
+            #     loss_base_reg_loop += poly_loss
+            # print(loss_base_reg_loop)
+
             # h_loss = torch.sum(torch.abs(delta_h - gt_h_delta[fg_inds]))
             # loss_base_reg += h_loss
-            # print(loss_base_reg)
-            # print(self.gt_classes.numel())
 
         # The loss is normalized using the total number of regions (R), not the number
         # of foreground regions even though the box regression loss is only defined on

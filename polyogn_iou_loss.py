@@ -95,6 +95,7 @@ def c_poly_iou(poly1, poly2):
     Nx = Nx[keep[:, 0], keep[:, 1]]
     Ny = Ny[keep[:, 0], keep[:, 1]]
     intersections = torch.stack([Nx, Ny], dim=1)
+
     # print(np_wn(poly1_np, poly2_np))
     poly1_np_keep = torch_wn(poly1, poly2)
     poly2_np_keep = torch_wn(poly2, poly1)
