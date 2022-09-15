@@ -88,8 +88,8 @@ class CustomEvaluator(DatasetEvaluator):
             instances = output["instances"].to(torch.device("cpu"))
             # print(instances)
             prediction["pred_boxes"] = instances.pred_boxes
-            # prediction["pred_bases"] = instances.pred_bases
-            prediction["pred_bases"] = torch.zeros_like(instances.pred_boxes)
+            prediction["pred_bases"] = instances.pred_bases
+            # prediction["pred_bases"] = torch.zeros_like(instances.pred_boxes)
             prediction["scores"] = instances.scores
             prediction["pred_classes"] = instances.pred_classes
             self._predictions.append(prediction)
@@ -172,9 +172,11 @@ class KittiEval:
         self.gtms = {}
         self.ptms = {}
         self.bases_ptms = {}
+        self.bases_gtms = {}
+        self.gt_scores = {}
 
     def evaluate(self):
-        threshold = 0.5
+        threshold = 0.3
         for idx, inputs in enumerate(self.ground_truth):
             instance = inputs[0]['instances'].to(torch.device("cpu"))
             gt_bases = instance.gt_bases
@@ -190,10 +192,10 @@ class KittiEval:
             score = score[sort_pred]
             self.sorted_scores[idx] = score
 
-            sort_pred = np.argsort(-score)
-            pred_bases = pred_bases[sort_pred, :]
-            pred_boxes = pred_boxes[sort_pred, :]
-            score = score[sort_pred]
+            # sort_pred = np.argsort(-score)
+            # pred_bases = pred_bases[sort_pred, :]
+            # pred_boxes = pred_boxes[sort_pred, :]
+            # score = score[sort_pred]
 
             gtIds = range(gt_classes.shape[0])
             ptIds = range(score.shape[0])
@@ -204,16 +206,19 @@ class KittiEval:
             for pind in ptIds:
                 for gind in gtIds:
                     img_ious[pind, gind] = self.computeIoU(pred_boxes[pind, :], gt_boxes[gind, :])
-            gtm = np.zeros(G)
+            gtm = -np.ones(G)
             ptm = np.zeros(D)
             bases_ptm = np.zeros(D)
+            bases_gtm = np.zeros(G)
+            gt_score = np.zeros(G)
 
             t = threshold
             for pind in ptIds:
                 iou = min([t, 1 - 1e-10])
                 m = -1
                 for gind in gtIds:
-                    if gtm[gind] > 0:
+                    # ground truth is already matched, skip
+                    if gtm[gind] > -1:
                         continue
                     if img_ious[pind, gind] < iou:
                         continue
@@ -224,12 +229,16 @@ class KittiEval:
                 ptm[pind] = m
                 gtm[m] = pind
                 bases_ptm[pind] = 1 \
-                    if 1 - c_poly_loss(pred_bases[pind, :].view(4, 2), gt_bases[m, :].view(4, 2)) > t \
+                    if (1 - c_poly_loss(pred_bases[pind, :].view(4, 2), gt_bases[m, :].view(4, 2))) > t \
                     else 0
+                bases_gtm[m] = bases_ptm[pind]
+                gt_score[m] = score[pind]
             self.ious[idx] = img_ious
             self.gtms[idx] = gtm
             self.ptms[idx] = ptm
             self.bases_ptms[idx] = bases_ptm
+            self.bases_gtms[idx] = bases_gtm
+            self.gt_scores[idx] = gt_score
 
     def computeIoU(self, pt, gt):
         return bb_intersection_over_union(pt, gt)
@@ -237,19 +246,23 @@ class KittiEval:
     def accumulate(self):
         ptm = np.concatenate([v for e, v in self.ptms.items()])
         gtm = np.concatenate([v for e, v in self.gtms.items()])
-        scores = np.concatenate([v for e, v in self.sorted_scores.items()])
-        bases_ptm = np.concatenate([v for e, v in self.bases_ptms.items()])
+        scores = np.concatenate([v for e, v in self.gt_scores.items()])
+        bases_gtm = np.concatenate([v for e, v in self.bases_gtms.items()])
         ngtm = gtm.shape[0]
 
         sorted_orders = np.argsort(-scores)
+        print(sorted_orders)
         scores = scores[sorted_orders]
-        ptm = ptm[sorted_orders]
-        bases_ptm = bases_ptm[sorted_orders]
-        print(bases_ptm)
-        ptm[ptm > 0] = 1
+        print(scores)
+        gtm = gtm[sorted_orders]
+        bases_gtm = bases_gtm[sorted_orders]
+        print(gtm)
+        print(bases_gtm)
+        gtm[gtm > -1] = 1
+        gtm[gtm < 0] = 0
 
-        tps = ptm
-        bases_tps = bases_ptm
+        tps = gtm
+        bases_tps = bases_gtm
         fps = np.logical_not(tps)
         bases_fps = np.logical_not(bases_tps)
         tp_sum = np.cumsum(tps, axis=0).astype(dtype=float)
@@ -269,7 +282,10 @@ class KittiEval:
 
         plt.xlabel("Recall")
         plt.ylabel("Precision")
-        plt.plot(bases_recall, bases_precision)
+        ###########################
+        #   Corrupted !!!!!########
+        ###########################
+        plt.plot(np.flip(bases_recall), bases_precision)
         plt.title("bases AP curve")
         plt.show()
 
@@ -288,7 +304,7 @@ class KittiEval:
 DatasetCatalog.register("Kitti_test", lambda: load_dataset_detectron2(train=False))
 
 cfg = get_cfg()
-cfg.merge_from_file("configs/base_detection_faster_rcnn.yaml")
+cfg.merge_from_file("configs/test_faster_rcnn.yaml")
 cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5
 cfg.DATASETS.TRAIN = ("Kitti_test",)
 cfg.DATALOADER.NUM_WORKERS = 0
@@ -297,7 +313,7 @@ predictor = DefaultPredictor(cfg)
 
 model = DefaultTrainer.build_model(cfg)
 checkpointer = DetectionCheckpointer(model, save_dir="model_param")
-checkpointer.load("results/discard negative base train from scratch/model_0019999.pth")
+checkpointer.load("results/predict h/model_final.pth")
 # checkpointer.load("output/model_final.pth")
 
 # evaluator = COCOEvaluator("Kitti_train", output_dir="./output", tasks="bbox", distributed=False)

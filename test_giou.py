@@ -59,10 +59,10 @@ def plot_adjacency(points, adjacency, color=(0, 0, 255), im=None):
     return
 
 variance = 150
-init_mid_np = np.concatenate((np.random.normal(150, variance / 3, size=(1, 2)), np.random.normal(0, variance, size=(2, 2))), axis=0)
+init_mid_np = np.concatenate((np.random.normal(300, variance, size=(1, 2)), np.random.normal(0, variance, size=(2, 2))), axis=0)
 init_mid = torch.Tensor(init_mid_np)
 init_mid2 = torch.Tensor(init_mid_np)
-target_mid_np = np.concatenate((np.random.normal(150, variance / 3, size=(1, 2)), np.random.normal(0, variance, size=(2, 2))), axis=0)
+target_mid_np = np.concatenate((np.random.normal(300, variance, size=(1, 2)), np.random.normal(0, variance, size=(2, 2))), axis=0)
 target_mid = torch.Tensor(target_mid_np)
 # print(mid_2_points(init_mid))
 
@@ -78,28 +78,38 @@ opt2 = torch.optim.Adam([poly_init2], lr=0.55)
 
 loss_history_1 = []
 loss_history_2 = []
+last_iou = 0
 
 for k in range(1000):
     giou = c_poly_giou(mid_2_points(poly_init), poly_target)
-    print(mid_2_points(poly_init))
-    print(poly_target)
+    # print(mid_2_points(poly_init))
+    # print(poly_target)
     opt.zero_grad()
     loss = c_poly_diou_loss(mid_2_points(poly_init), poly_target)
-    loss_history_1.append(c_poly_iou(mid_2_points(poly_init), poly_target).detach().numpy())
+
+    iou = c_poly_iou(mid_2_points(poly_init), poly_target).detach().numpy()
+    loss_history_1.append(iou)
+    print(iou - last_iou)
+    if (iou - last_iou) < -0.005:
+        print(mid_2_points(poly_init))
+        print(poly_target)
+        # exit(0)
+    last_iou = iou
+
     loss.backward()
-    print("Polygon IOU: {}. lr:{}".format(giou.item(), opt.param_groups[0]['lr']))
-    # im = np.zeros([1000, 1000, 3]) + 255
-    # poly_1_detach = mid_2_points(poly_init).detach()
-    # for i in range(-1, len(poly_1_detach) - 1):
-    #     p1 = poly_1_detach[i].int()
-    #     p2 = poly_1_detach[i + 1].int()
-    #     im = cv2.line(im, (p1[0], p1[1]), (p2[0], p2[1]), (0, 0, 255), 1)
-    # for i in range(-1, len(poly_target) - 1):
-    #     p1 = poly_target[i].int()
-    #     p2 = poly_target[i + 1].int()
-    #     im = cv2.line(im, (p1[0], p1[1]), (p2[0], p2[1]), (255, 0, 255), 1)
-    # im = plot_poly(mid_2_points(poly_init), color=(0, 0, 255), im=im, show=False)
-    # im = plot_poly(poly_target, color=(255, 0, 0), im=im, show=False, text="Polygon IOU: {}".format(giou))
+    # print("Polygon IOU: {}. lr:{}".format(giou.item(), opt.param_groups[0]['lr']))
+    im = np.zeros([1300, 1300, 3]) + 255
+    poly_1_detach = mid_2_points(poly_init).detach()
+    for i in range(-1, len(poly_1_detach) - 1):
+        p1 = poly_1_detach[i].int()
+        p2 = poly_1_detach[i + 1].int()
+        im = cv2.line(im, (p1[0], p1[1]), (p2[0], p2[1]), (0, 0, 255), 1)
+    for i in range(-1, len(poly_target) - 1):
+        p1 = poly_target[i].int()
+        p2 = poly_target[i + 1].int()
+        im = cv2.line(im, (p1[0], p1[1]), (p2[0], p2[1]), (255, 0, 255), 1)
+    im = plot_poly(mid_2_points(poly_init), color=(0, 0, 255), im=im, show=False)
+    im = plot_poly(poly_target, color=(255, 0, 0), im=im, show=False, text="Polygon IOU: {}".format(giou))
     opt.step()
     # scheduler.step()
     del loss
@@ -108,7 +118,7 @@ for k in range(1000):
     l2_2 = torch.pow((mid_2_points(poly_init2) - poly_target), 2).mean()
     loss_history_2.append(c_poly_iou(mid_2_points(poly_init2), poly_target).detach().numpy())
     l2_2.backward()
-    print("l2 loss: {}".format(l2_2.item()))
+    # print("l2 loss: {}".format(l2_2.item()))
     # im2 = np.zeros([1000, 1000, 3]) + 255
     # im2 = plot_poly(mid_2_points(poly_init2), color=(0, 0, 255), im=im2, show=False)
     # im2 = plot_poly(poly_target, color=(255, 0, 0), im=im2, show=False, text="L2 loss: {}".format(l2_2))
@@ -118,7 +128,8 @@ for k in range(1000):
 
     # Hori = np.concatenate((im, im2), axis=1)
     # cv2.imshow("im", Hori)
-    # cv2.waitKey(30)
+    cv2.imshow("im", im)
+    cv2.waitKey(3)
 
 plt.title("Polygon DIoU Loss")
 plt.plot(np.array(loss_history_1))

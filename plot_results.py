@@ -42,7 +42,7 @@ DatasetCatalog.register("Kitti_train", lambda: load_dataset_detectron2())
 
 cfg = get_cfg()
 cfg.merge_from_file("configs/base_detection_faster_rcnn.yaml")
-cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5
+cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.3
 cfg.DATASETS.TRAIN = ("Kitti_train",)
 cfg.DATALOADER.NUM_WORKERS = 0
 
@@ -52,8 +52,8 @@ checkpointer = DetectionCheckpointer(predictor.model, save_dir="model_param")
 checkpointer.load("results/predict h/model_final.pth")
 # checkpointer.load("output/model_final.pth")
 
-im = cv2.imread("images/000003.png")
-# im = cv2.imread("testing/000002.png")
+im = cv2.imread("images/000001.png")
+# im = cv2.imread("testing/000007.png")
 # print(im.shape)
 # plt.figure(figsize=(15, 7.5))
 # plt.imshow(im[..., ::-1])
@@ -86,6 +86,11 @@ for idx in range(bases.shape[0]):
     plt.scatter(x=bases[idx, 4], y=(bases[idx, 5] - h[idx]), s=40, color="r")
     plt.scatter(x=bases[idx, 6], y=(bases[idx, 7] - h[idx]), s=40, color="r")
     plt.scatter(x=bases[idx, 8], y=bases[idx, 9], s=40, color="g")
+    xs = bases[idx, [0, 2, 6, 4, 0]]
+    ys = bases[idx, [1, 3, 7, 5, 1]]
+    tys = bases[idx, [1, 3, 7, 5, 1]] - h[idx]
+    plt.plot(xs, ys, color='deepskyblue', linewidth=3)
+    plt.plot(xs, tys, color='deepskyblue', linewidth=3)
     # plt.scatter(x=boxes[idx, 0], y=boxes[idx, 1], s=40, color="y")
     # plt.scatter(x=boxes[idx, 2], y=boxes[idx, 3], s=40, color="y")
     # break

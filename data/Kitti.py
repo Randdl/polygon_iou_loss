@@ -28,6 +28,83 @@ def computeVelodyne(label, P):
     return corners
 
 
+def batch_computeBox3D(label, P):
+    w = label[:, 0]
+    h = label[:, 1]
+    l = label[:, 2]
+    x = label[:, 3]
+    y = label[:, 4]
+    z = label[:, 5]
+    ry = label[:, 6]
+    size = len(ry)
+    R1 = torch.stack((torch.cos(ry), torch.zeros(size), torch.sin(ry)), dim=1)
+    R2 = torch.tensor([0, 1, 0]).repeat(size, 1)
+    R3 = torch.stack((-torch.sin(ry), torch.zeros(size), torch.cos(ry)), dim=1)
+    R = torch.stack((R1, R2, R3), dim=2)
+
+    x_corners = torch.stack((-l/2, l/2, l/2, l/2, l/2, -l/2, -l/2, -l/2), dim=1)  # -l/2
+    y_corners = torch.stack((-h, -h, torch.zeros(size), torch.zeros(size),
+                             -h, -h, torch.zeros(size), torch.zeros(size)), dim=1)  # -h
+    z_corners = torch.stack((-w/2, -w/2, -w/2, w/2, w/2, w/2, w/2, -w/2), dim=1)  # -w/2
+
+    corners_3D = torch.stack((x_corners, y_corners, z_corners), dim=1)
+
+    corners_3D = torch.bmm(R, corners_3D)
+
+    corners_3D = torch.add(corners_3D, torch.stack((x, y, z), dim=1)[:, :, None])
+
+    corners_3D_1 = torch.cat((corners_3D, torch.ones((size, 1, corners_3D.shape[-1]))), dim=1)
+
+    corners_2D = torch.matmul(P, corners_3D_1)
+
+    corners_2D = torch.div(corners_2D, corners_2D[:, 2:3, :])
+
+    corners_2D = corners_2D[:, :2, :]
+    base_indices = [2, 3, 6, 7]
+    base_3Dto2D = corners_2D[:, :, base_indices]
+
+    return corners_2D, base_3Dto2D
+
+
+def np_computeBox3D(label, P):
+    w = label[0]
+    h = label[1]
+    l = label[2]
+    x = label[3]
+    y = label[4]
+    z = label[5]
+    ry = label[6]
+
+    R = np.array([[+cos(ry), 0, +sin(ry)],
+                  [0, 1, 0],
+                  [-sin(ry), 0, +cos(ry)]])
+
+    x_corners = [0, l, l, l, l, 0, 0, 0]  # -l/2
+    y_corners = [0, 0, h, h, 0, 0, h, h]  # -h
+    z_corners = [0, 0, 0, w, w, w, w, 0]  # -w/2
+
+    x_corners = [i - l / 2 for i in x_corners]
+    y_corners = [i - h for i in y_corners]
+    z_corners = [i - w / 2 for i in z_corners]
+
+
+    corners_3D = np.array([x_corners, y_corners, z_corners])
+
+    corners_3D = R.dot(corners_3D)
+
+    corners_3D += np.array([x, y, z]).reshape((3, 1))
+
+    corners_3D_1 = np.vstack((corners_3D, np.ones((corners_3D.shape[-1]))))
+
+    corners_2D = P.dot(corners_3D_1)
+
+    corners_2D = corners_2D / corners_2D[2]
+
+    corners_2D = corners_2D[:2]
+    # print(base_3Dto2D)
+    return corners_2D, corners_3D
+
+
 def computeBox3D(label, P):
     '''
     takes an object label and a projection matrix (P) and projects the 3D
@@ -55,7 +132,7 @@ def computeBox3D(label, P):
 
     x_corners = [0, l, l, l, l, 0, 0, 0]  # -l/2
     y_corners = [0, 0, h, h, 0, 0, h, h]  # -h
-    z_corners = [0, 0, 0, w, w, w, w, 0]  # --w/2
+    z_corners = [0, 0, 0, w, w, w, w, 0]  # -w/2
 
     # x_corners += -l / 2
     # y_corners += -h
@@ -247,7 +324,6 @@ class Kitti(VisionDataset):
         corner = []
         P2_rect = calib['P2'].reshape(3, 4)
         velo_to_cam = calib['Tr_velo_to_cam'].reshape(3, 4)
-        print(velo_to_cam)
         for single in target:
             base_3Dto2D, corners_2D, corners_3D, paths_2D = computeBox3D(single, P2_rect)
             corner.append(
@@ -298,8 +374,6 @@ class Kitti(VisionDataset):
         P2_rect = calib['P2'].reshape(3, 4)
         velo_to_cam = calib['Tr_velo_to_cam'].reshape(3, 4)
         imu_to_velo = calib['Tr_imu_to_velo'].reshape(3, 4)
-        print(velo_to_cam)
-        print(imu_to_velo)
         target = []
         with open(self.targets[index]) as inp:
             content = csv.reader(inp, delimiter=" ")
@@ -307,8 +381,6 @@ class Kitti(VisionDataset):
                 base_3Dto2D, corners_2D, corners_3D, paths_2D = computeBox3D([float(x) for x in line[8:15]], P2_rect)
                 corners_velo = computeVelodyne(corners_3D, velo_to_cam)
                 corners_imu = computeVelodyne(corners_velo, imu_to_velo)
-                print(corners_velo)
-                print(corners_imu)
                 target.append(
                     {
                         "type": self.dic[line[0]],
@@ -320,6 +392,8 @@ class Kitti(VisionDataset):
                         "corners": corners_3D,
                         "bbox": [float(x) for x in line[4:8]],
                         "3dbox": corners_2D,
+                        "calib": P2_rect,
+                        "origin3d": [float(x) for x in line[8:15]],
                         # "dimensions": [float(x) for x in line[8:11]],
                         # "location": [float(x) for x in line[11:14]],
                         # "rotation_y": float(line[14]),
@@ -415,6 +489,7 @@ def load_dataset_detectron2(root="..", train=True, test=False):
 
     dic = {}
     indexx = 0
+    box_3d = []
     for dir in targets:
         with open(dir) as inp:
             content = csv.reader(inp, delimiter=" ")
@@ -422,6 +497,11 @@ def load_dataset_detectron2(root="..", train=True, test=False):
                 if not line[0] in dic:
                     dic[line[0]] = indexx
                     indexx += 1
+                if float(line[8]) > -1:
+                    box_3d.append([float(x) for x in line[8:15]])
+    box_3d = np.array(box_3d)
+    print(box_3d.min(axis=0))
+    print(box_3d.max(axis=0))
     print("dic size: ", len(dic))
     print(dic)
     shortest_width = 10000
