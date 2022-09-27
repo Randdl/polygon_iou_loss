@@ -246,11 +246,11 @@ class CustomROIHeads(StandardROIHeads):
         box_features = self.box_pooler(features, [x.proposal_boxes for x in proposals])
         box_features = self.box_head(box_features)
         # predictor is in fast_rcnn.py FastRCNNOutputLayers
-        predictions, pred_bases = self.box_predictor(box_features)
+        predictions, pred_bases, pred_depth = self.box_predictor(box_features)
         del box_features
 
         if self.training:
-            losses = self.box_predictor.losses((predictions, pred_bases), proposals)
+            losses = self.box_predictor.losses((predictions, pred_bases, pred_depth), proposals)
             # proposals is modified in-place below, so losses must be computed first.
             if self.train_on_pred_boxes:
                 with torch.no_grad():
@@ -261,7 +261,7 @@ class CustomROIHeads(StandardROIHeads):
                         proposals_per_image.proposal_boxes = Boxes(pred_boxes_per_image)
             return losses
         else:
-            pred_instances, _ = self.box_predictor.inference((predictions, pred_bases), proposals)
+            pred_instances, _ = self.box_predictor.inference((predictions, pred_bases, pred_depth), proposals)
             return pred_instances
 
 

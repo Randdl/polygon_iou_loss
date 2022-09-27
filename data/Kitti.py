@@ -154,6 +154,8 @@ def computeBox3D(label, P):
 
     # translate
     corners_3D += np.array([x, y, z]).reshape((3, 1))
+    mid_point = np.mean(corners_3D, axis=1)
+    depth = np.sqrt(np.sum(np.square(mid_point)))
     # print(corners_3D.shape)
     # print ( 'corners_3d', corners_3D)
 
@@ -198,7 +200,7 @@ def computeBox3D(label, P):
 
     base_3Dto2D = np.concatenate((first_two, second_two, top_first_two, top_second_two), axis=1)
     # print(base_3Dto2D)
-    return base_3Dto2D, corners_2D, corners_3D, bb2d_lines_verts[:2]
+    return base_3Dto2D, corners_2D, corners_3D, bb2d_lines_verts[:2], depth
 
 
 class Kitti(VisionDataset):
@@ -325,7 +327,7 @@ class Kitti(VisionDataset):
         P2_rect = calib['P2'].reshape(3, 4)
         velo_to_cam = calib['Tr_velo_to_cam'].reshape(3, 4)
         for single in target:
-            base_3Dto2D, corners_2D, corners_3D, paths_2D = computeBox3D(single, P2_rect)
+            base_3Dto2D, corners_2D, corners_3D, paths_2D, depth = computeBox3D(single, P2_rect)
             corner.append(
                 {
                     # "corners_2D": corners_2D,
@@ -378,7 +380,7 @@ class Kitti(VisionDataset):
         with open(self.targets[index]) as inp:
             content = csv.reader(inp, delimiter=" ")
             for line in content:
-                base_3Dto2D, corners_2D, corners_3D, paths_2D = computeBox3D([float(x) for x in line[8:15]], P2_rect)
+                base_3Dto2D, corners_2D, corners_3D, paths_2D, depth = computeBox3D([float(x) for x in line[8:15]], P2_rect)
                 corners_velo = computeVelodyne(corners_3D, velo_to_cam)
                 corners_imu = computeVelodyne(corners_velo, imu_to_velo)
                 target.append(
@@ -554,7 +556,7 @@ def load_dataset_detectron2(root="..", train=True, test=False):
                     continue
                 # if abs(float(line[6]) - float(line[4])) < 8 or abs(float(line[7]) - float(line[5])) < 8:
                 #     continue
-                base_3Dto2D, corners_2D, _, _ = computeBox3D([float(x) for x in line[8:15]], P2_rect)
+                base_3Dto2D, corners_2D, _, _, depth = computeBox3D([float(x) for x in line[8:15]], P2_rect)
                 DISCARD = True
                 if DISCARD:
                     # print(base_3Dto2D < 0 or base_3Dto2D > 1222)
@@ -581,6 +583,7 @@ def load_dataset_detectron2(root="..", train=True, test=False):
                     "category_id": category_id,
                     "base": base_3Dto2D,
                     "h": corners_2D[1, 2] - corners_2D[1, 0],
+                    "depth": depth,
                 }
                 if float(line[4]) < 1:
                     obj["bbox"][0] = 1

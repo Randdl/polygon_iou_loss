@@ -14,10 +14,11 @@ target = image['target'][0]
 # print(target['base'])
 # print(target['corners'])
 origin3d = target['origin3d']
+print(target['type'])
 origin3d = np.array(origin3d)
 origin3d_tensor = torch.tensor(origin3d, dtype=torch.float)
 print(origin3d)
-base_3Dto2D, corners_2D, corners_3D, bb2d_lines_verts = computeBox3D([x+0.01 for x in origin3d], target['calib'])
+base_3Dto2D, corners_2D, corners_3D, bb2d_lines_verts, depth = computeBox3D([x+0.01 for x in origin3d], target['calib'])
 # print(base_3Dto2D)
 # load_dataset_detectron2(test=False)
 w_range = np.arange(0.76, 4.2, 0.5)
@@ -36,13 +37,15 @@ plt.show()
 P = target['calib']
 real_corners, _ = np_computeBox3D(origin3d, P)
 
+
 def diff_fun(input):
     corners, _ = np_computeBox3D(input, P)
     diff = real_corners - corners
     return diff.flatten()
 
 
-x0 = np.array([3, 2, 10, 2, 1, 8, 0])
+x0 = np.array([3, 2, 20, 30, 5, 80, 2])
+# x0 = origin3d + (np.random.rand(7) - 0.5)
 bounds = np.array([0.76, 0.3, 0.2, -44, -2, -4, -3.14]), np.array([4.2, 3, 35, 40, 6, 147, 3.14])
 res_1 = least_squares(diff_fun, x0, bounds=bounds)
 print(res_1.x)

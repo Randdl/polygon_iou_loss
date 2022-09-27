@@ -49,6 +49,7 @@ def fast_rcnn_inference(
         boxes: List[torch.Tensor],
         bases: List[torch.Tensor],
         scores: List[torch.Tensor],
+        depth: List[torch.Tensor],
         image_shapes: List[Tuple[int, int]],
         score_thresh: float,
         nms_thresh: float,
@@ -81,9 +82,9 @@ def fast_rcnn_inference(
     """
     result_per_image = [
         fast_rcnn_inference_single_image(
-            boxes_per_image, scores_per_image, bases_per_image, image_shape, score_thresh, nms_thresh, topk_per_image
+            boxes_per_image, scores_per_image, bases_per_image, depth_per_image, image_shape, score_thresh, nms_thresh, topk_per_image
         )
-        for scores_per_image, boxes_per_image, bases_per_image, image_shape in zip(scores, boxes, bases, image_shapes)
+        for scores_per_image, boxes_per_image, bases_per_image, depth_per_image, image_shape in zip(scores, boxes, bases, depth, image_shapes)
     ]
     return [x[0] for x in result_per_image], [x[1] for x in result_per_image]
 
@@ -150,10 +151,12 @@ def delta_to_polygon(pred_bases_transformed, pred_boxes_fg):
         dim=1)
     return pred_bases_new
 
+
 def fast_rcnn_inference_single_image(
         boxes,
         scores,
         bases,
+        depth,
         image_shape: Tuple[int, int],
         score_thresh: float,
         nms_thresh: float,
@@ -175,6 +178,7 @@ def fast_rcnn_inference_single_image(
         boxes = boxes[valid_mask]
         scores = scores[valid_mask]
         bases = bases[valid_mask]
+        depth = depth[valid_mask]
 
     scores = scores[:, :-1]
     num_bbox_reg_classes = boxes.shape[1] // 4
@@ -187,7 +191,7 @@ def fast_rcnn_inference_single_image(
     # print(bases.shape)
     boxes = boxes.tensor.view(-1, num_bbox_reg_classes, 4)  # R x C x 4
     # print(boxes.shape)
-    bases = bases.view(-1, num_bbox_reg_classes, 7)
+    bases = bases.view(-1, num_bbox_reg_classes, 16)
     # print(bases.shape)
 
     # 1. Filter results based on detection scores. It can make NMS more efficient
@@ -203,25 +207,30 @@ def fast_rcnn_inference_single_image(
         boxes = boxes[filter_mask]
     bases = bases[filter_mask]
     scores = scores[filter_mask]
+    depth = depth[filter_mask]
 
     # 2. Apply NMS for each class independently.
     keep = batched_nms(boxes, scores, filter_inds[:, 1], nms_thresh)
     if topk_per_image >= 0:
         keep = keep[:topk_per_image]
-    boxes, bases, scores, filter_inds = boxes[keep], bases[keep], scores[keep], filter_inds[keep]
+    boxes, bases, scores, depth, filter_inds = boxes[keep], bases[keep], scores[keep], depth[keep], filter_inds[keep]
 
     h = bases[:, 6]
-    bases = bases[:, 0:6]
-    bases = delta_to_bases(bases, boxes)
+    bases_bottom = bases[:, 0:8]
+    bases_bottom = delta_to_bases(bases_bottom, boxes)
+    bases_top = bases[:, 8:16]
+    bases_top = delta_to_bases(bases_top, boxes)
     h = delta_to_h(h, boxes)
     # print(mid.shape)
     # print(mid)
 
     result = Instances(image_shape)
-    result.pred_bases = bases
+    result.pred_bases = bases_bottom
+    result.pred_top = bases_top
     result.pred_h = h
     result.pred_boxes = Boxes(boxes)
     result.scores = scores
+    result.pred_depth = depth
     result.pred_classes = filter_inds[:, 1]
     # print(image_shape)
     # print(result)
@@ -239,6 +248,7 @@ class FastRCNNOutputs:
             box2box_transform,
             pred_class_logits,
             pred_proposal_deltas,
+            pred_depth,
             proposals,
             smooth_l1_beta=0.0,
             box_reg_loss_type="smooth_l1",
@@ -270,6 +280,7 @@ class FastRCNNOutputs:
         self.num_preds_per_image = [len(p) for p in proposals]
         self.pred_class_logits = pred_class_logits
         self.pred_proposal_deltas, self.pred_bases = pred_proposal_deltas
+        self.pred_depth = pred_depth
         self.smooth_l1_beta = smooth_l1_beta
         self.box_reg_loss_type = box_reg_loss_type
 
@@ -290,6 +301,8 @@ class FastRCNNOutputs:
                 self.gt_classes = cat([p.gt_classes for p in proposals], dim=0)
                 assert proposals[0].has("gt_h")
                 self.gt_h = cat([p.gt_h for p in proposals], dim=0)
+                assert proposals[0].has("gt_depth")
+                self.gt_depth = cat([p.gt_depth for p in proposals], dim=0)
                 assert proposals[0].has("gt_bases")
                 self.gt_bases = cat([p.gt_bases for p in proposals], dim=0)
         else:
@@ -406,6 +419,32 @@ class FastRCNNOutputs:
         loss_box_reg = loss_box_reg / self.gt_classes.numel()
         return loss_box_reg
 
+    def depth_reg_loss(self):
+        if self._no_instances:
+            return 0.0 * self.pred_bases.sum()
+        device = self.pred_bases.device
+        bg_class_ind = self.pred_class_logits.shape[1] - 1
+        fg_inds = nonzero_tuple((self.gt_classes >= 0) & (self.gt_classes < bg_class_ind))[0]
+        fg_gt_classes = self.gt_classes[fg_inds]
+        # pred_proposal_deltas for class k are located in columns [b * k : b * k + b],
+        # where b is the dimension of box representation (4 or 5)
+        # Note that compared to Detectron1,
+        # we do not perform bounding box regression for background classes.
+        # gt_class_cols = box_dim * fg_gt_classes[:, None] + torch.arange(box_dim, device=device)
+        # print(fg_inds)
+        # print(self.pred_depth[fg_inds])
+        # print(fg_gt_classes)
+        # print(self.pred_depth[fg_inds, fg_gt_classes])
+
+        loss = smooth_l1_loss(
+                self.pred_depth[fg_inds, fg_gt_classes],
+                self.gt_depth[fg_inds],
+                self.smooth_l1_beta,
+                reduction="sum",
+            )
+        return loss / 50 / self.gt_classes.numel()
+
+
     def base_reg_loss(self):
         """
         Compute the smooth L1 loss for box regression.
@@ -440,7 +479,8 @@ class FastRCNNOutputs:
         # print(self.pred_bases[fg_inds[:, None], gt_class_cols].shape)
 
         gt_class_cols_boxes = torch.arange(4, device=device)
-        pred_boxes = self.box2box_transform.apply_deltas(self.pred_proposal_deltas[:, gt_class_cols_boxes], self.proposals.tensor)
+        pred_boxes = self.box2box_transform.apply_deltas(self.pred_proposal_deltas[:, gt_class_cols_boxes],
+                                                         self.proposals.tensor)
 
         # x1 = self.proposals.tensor[:, 0]
         # y1 = self.proposals.tensor[:, 1]
@@ -462,11 +502,19 @@ class FastRCNNOutputs:
         gt_bases_midy1 = self.gt_bases[:, 1]
         gt_bases_midx2 = self.gt_bases[:, 2]
         gt_bases_midy2 = self.gt_bases[:, 3]
+        gt_bases_midx3 = self.gt_bases[:, 0]
+        gt_bases_midy3 = self.gt_bases[:, 1]
+        gt_bases_midx4 = self.gt_bases[:, 2]
+        gt_bases_midy4 = self.gt_bases[:, 3]
 
         gt_bases_midx1 = gt_bases_midx1 - gt_bases_midx
         gt_bases_midy1 = gt_bases_midy1 - gt_bases_midy
         gt_bases_midx2 = gt_bases_midx2 - gt_bases_midx
         gt_bases_midy2 = gt_bases_midy2 - gt_bases_midy
+        gt_bases_midx3 = gt_bases_midx3 - gt_bases_midx
+        gt_bases_midy3 = gt_bases_midy3 - gt_bases_midy
+        gt_bases_midx4 = gt_bases_midx4 - gt_bases_midx
+        gt_bases_midy4 = gt_bases_midy4 - gt_bases_midy
 
         gt_bases_midx = gt_bases_midx - pred_boxes_midx
         gt_bases_midy = gt_bases_midy - pred_boxes_midy
@@ -474,6 +522,8 @@ class FastRCNNOutputs:
         gt_bases_midy = gt_bases_midy / dy
         gt_bases_mid = torch.stack((gt_bases_midx, gt_bases_midy), dim=1)
 
+        gt_bases_r3 = gt_bases_midx3 / gt_bases_midx2
+        gt_bases_r4 = gt_bases_midx4 / gt_bases_midx1
         gt_bases_midx1 = gt_bases_midx1 / dx
         gt_bases_midy1 = gt_bases_midy1 / dy
         gt_bases_midx2 = gt_bases_midx2 / dx
@@ -503,7 +553,7 @@ class FastRCNNOutputs:
             # print(preds.shape)
             gts = self.gt_bases[fg_inds]
             loss_base_reg = batch_poly_diou_loss(pred_bases_bottom.view(-1, 4, 2), gts[:, 0:8].view(-1, 4, 2)).sum() \
-                            + batch_poly_diou_loss(pred_bases_bottom.view(-1, 4, 2), gts[:, 8:16].view(-1, 4, 2)).sum()
+                            + batch_poly_diou_loss(pred_bases_top.view(-1, 4, 2), gts[:, 8:16].view(-1, 4, 2)).sum()
             # print(loss_base_reg)
             # loss_base_reg_loop = 0
             # for idx in range(pred_bases_bottom.shape[0]):
@@ -556,7 +606,7 @@ class FastRCNNOutputs:
             A dict of losses (scalar tensors) containing keys "loss_cls" and "loss_box_reg".
         """
         return {"loss_cls": self.softmax_cross_entropy_loss(), "loss_box_reg": self.box_reg_loss(),
-                "loss_base_reg": self.base_reg_loss()}
+                "loss_base_reg": self.base_reg_loss(), "loss_depth_reg": self.depth_reg_loss()}
 
     def predict_boxes(self):
         """
@@ -636,11 +686,13 @@ class NewFastRCNNOutputLayers(nn.Module):
         self.bbox_pred = Linear(input_size, num_bbox_reg_classes * box_dim)
         # modified
         self.base_pred = Linear(input_size, num_bbox_reg_classes * 16)
+        self.depth_pred = Linear(input_size, num_bbox_reg_classes)
 
         nn.init.normal_(self.cls_score.weight, std=0.01)
         nn.init.normal_(self.bbox_pred.weight, std=0.001)
         # nn.init.normal_(self.base_pred.weight, mean=0.6, std=0.6)
         nn.init.normal_(self.base_pred.weight, std=0.003)
+        nn.init.normal_(self.depth_pred.weight, std=0.003)
         # print(self.base_pred.weight.shape)
         # for idx in range(num_bbox_reg_classes):
         #     nn.init.normal_(self.base_pred.weight[idx*6, :], mean=0.6, std=0.01)
@@ -703,6 +755,7 @@ class NewFastRCNNOutputLayers(nn.Module):
         scores = self.cls_score(x)
         proposal_deltas = self.bbox_pred(x)
         proposal_bases = self.base_pred(x)
+        proposal_depth = self.depth_pred(x)
 
         # proposal_bases = proposal_bases.view(-1, 9, 6)
         # mid = proposal_bases[:, :, 0:2]
@@ -712,7 +765,7 @@ class NewFastRCNNOutputLayers(nn.Module):
         # proposal_bases = proposal_bases.view(-1, 72)
         # print(proposal_bases[0,:,:])
         # print(proposal_bases.view(-1, 72).shape)
-        return (scores, proposal_deltas), proposal_bases
+        return (scores, proposal_deltas), proposal_bases, proposal_depth
 
     # TODO: move the implementation to this class.
     def losses(self, predictions, proposals):
@@ -728,7 +781,7 @@ class NewFastRCNNOutputLayers(nn.Module):
         """
         # for param in self.parameters():
         #     print(param)
-        predictions, pred_bases = predictions
+        predictions, pred_bases, pred_depth = predictions
         scores, proposal_deltas = predictions
         # print(pred_bases)
         # print(proposal_deltas)
@@ -737,6 +790,7 @@ class NewFastRCNNOutputLayers(nn.Module):
             scores,
             # modified
             (proposal_deltas, pred_bases),
+            pred_depth,
             proposals,
             self.smooth_l1_beta,
             self.box_reg_loss_type,
@@ -746,7 +800,7 @@ class NewFastRCNNOutputLayers(nn.Module):
         # return {}
         return {k: v * self.loss_weight.get(k, 1.0) for k, v in losses.items()}
 
-    def inference(self, predictions: Tuple[Tuple[torch.Tensor, torch.Tensor], torch.Tensor],
+    def inference(self, predictions: Tuple[Tuple[torch.Tensor, torch.Tensor], torch.Tensor, torch.Tensor],
                   proposals: List[Instances]):
         """
         Args:
@@ -758,7 +812,7 @@ class NewFastRCNNOutputLayers(nn.Module):
             list[Instances]: same as `fast_rcnn_inference`.
             list[Tensor]: same as `fast_rcnn_inference`.
         """
-        predictions, pred_bases = predictions
+        predictions, pred_bases, pred_depth = predictions
 
         # _, proposal_deltas = predictions
         # proposal_boxes = [p.proposal_boxes for p in proposals]
@@ -775,11 +829,14 @@ class NewFastRCNNOutputLayers(nn.Module):
         boxes = self.predict_boxes(predictions, proposals)
         bases = self.predict_bases(pred_bases, proposals)
         scores = self.predict_probs(predictions, proposals)
+        depth = self.predict_depth(pred_depth, proposals)
+
         image_shapes = [x.image_size for x in proposals]
         return fast_rcnn_inference(
             boxes,
             bases,
             scores,
+            depth,
             image_shapes,
             self.test_score_thresh,
             self.test_nms_thresh,
@@ -876,3 +933,9 @@ class NewFastRCNNOutputLayers(nn.Module):
         num_inst_per_image = [len(p) for p in proposals]
         probs = F.softmax(scores, dim=-1)
         return probs.split(num_inst_per_image, dim=0)
+
+    def predict_depth(
+            self, pred_depth: torch.Tensor, proposals: List[Instances]
+    ):
+        num_inst_per_image = [len(p) for p in proposals]
+        return pred_depth.split(num_inst_per_image, dim=0)

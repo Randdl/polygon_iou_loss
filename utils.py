@@ -154,6 +154,10 @@ def annotations_to_instances(annos, image_size, mask_format="polygon"):
     h = torch.tensor(h, dtype=torch.float32)
     target.gt_h = h
 
+    depth = [obj["depth"] for obj in annos]
+    depth = torch.tensor(depth, dtype=torch.float32)
+    target.gt_depth = depth
+
     return target
 
 
