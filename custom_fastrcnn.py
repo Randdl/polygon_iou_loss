@@ -82,9 +82,11 @@ def fast_rcnn_inference(
     """
     result_per_image = [
         fast_rcnn_inference_single_image(
-            boxes_per_image, scores_per_image, bases_per_image, depth_per_image, image_shape, score_thresh, nms_thresh, topk_per_image
+            boxes_per_image, scores_per_image, bases_per_image, depth_per_image, image_shape, score_thresh, nms_thresh,
+            topk_per_image
         )
-        for scores_per_image, boxes_per_image, bases_per_image, depth_per_image, image_shape in zip(scores, boxes, bases, depth, image_shapes)
+        for scores_per_image, boxes_per_image, bases_per_image, depth_per_image, image_shape in
+        zip(scores, boxes, bases, depth, image_shapes)
     ]
     return [x[0] for x in result_per_image], [x[1] for x in result_per_image]
 
@@ -124,6 +126,55 @@ def delta_to_bases(bases, boxes):
     y4 = midy - secondy * dy * ratio2
 
     return torch.stack((x1, y1, x2, y2, x3, y3, x4, y4, midx, midy), dim=-1)
+
+
+def bases_to_delta(bases, boxes):
+    x1 = boxes[:, 0]
+    y1 = boxes[:, 1]
+    x2 = boxes[:, 2]
+    y2 = boxes[:, 3]
+    pred_boxes_midx = (x1 + x2) / 2
+    pred_boxes_midy = (y1 + y2) / 2
+    pred_boxes_mid = torch.stack((pred_boxes_midx, pred_boxes_midy), dim=1)
+    dx = x2 - x1
+    dy = y2 - y1
+    delta_boxes = torch.stack((dx, dy), dim=1)
+    gt_bases_midx = (bases[:, 0] + bases[:, 2] + bases[:, 4] + bases[:, 6]) / 4
+    gt_bases_midy = (bases[:, 1] + bases[:, 3] + bases[:, 5] + bases[:, 7]) / 4
+    gt_bases_midx1 = bases[:, 0]
+    gt_bases_midy1 = bases[:, 1]
+    gt_bases_midx2 = bases[:, 2]
+    gt_bases_midy2 = bases[:, 3]
+    gt_bases_midx3 = bases[:, 0]
+    gt_bases_midy3 = bases[:, 1]
+    gt_bases_midx4 = bases[:, 2]
+    gt_bases_midy4 = bases[:, 3]
+
+    gt_bases_midx1 = gt_bases_midx1 - gt_bases_midx
+    gt_bases_midy1 = gt_bases_midy1 - gt_bases_midy
+    gt_bases_midx2 = gt_bases_midx2 - gt_bases_midx
+    gt_bases_midy2 = gt_bases_midy2 - gt_bases_midy
+    gt_bases_midx3 = gt_bases_midx3 - gt_bases_midx
+    gt_bases_midy3 = gt_bases_midy3 - gt_bases_midy
+    gt_bases_midx4 = gt_bases_midx4 - gt_bases_midx
+    gt_bases_midy4 = gt_bases_midy4 - gt_bases_midy
+
+    gt_bases_midx = gt_bases_midx - pred_boxes_midx
+    gt_bases_midy = gt_bases_midy - pred_boxes_midy
+    gt_bases_midx = gt_bases_midx / dx
+    gt_bases_midy = gt_bases_midy / dy
+    gt_bases_mid = torch.stack((gt_bases_midx, gt_bases_midy), dim=1)
+
+    gt_bases_r3 = gt_bases_midx3 / gt_bases_midx1
+    gt_bases_r4 = gt_bases_midx4 / gt_bases_midx2
+    gt_bases_midx1 = gt_bases_midx1 / dx
+    gt_bases_midy1 = gt_bases_midy1 / dy
+    gt_bases_midx2 = gt_bases_midx2 / dx
+    gt_bases_midy2 = gt_bases_midy2 / dy
+
+    gt_bases_delta = torch.stack((gt_bases_midx, gt_bases_midy, gt_bases_midx1, gt_bases_midy1,
+                                  gt_bases_midx2, gt_bases_midy2, gt_bases_r3, gt_bases_r4), dim=1)
+    return gt_bases_delta
 
 
 def delta_to_polygon(pred_bases_transformed, pred_boxes_fg):
@@ -421,8 +472,8 @@ class FastRCNNOutputs:
 
     def depth_reg_loss(self):
         if self._no_instances:
-            return 0.0 * self.pred_bases.sum()
-        device = self.pred_bases.device
+            return 0.0 * self.pred_depth.sum()
+        device = self.pred_depth.device
         bg_class_ind = self.pred_class_logits.shape[1] - 1
         fg_inds = nonzero_tuple((self.gt_classes >= 0) & (self.gt_classes < bg_class_ind))[0]
         fg_gt_classes = self.gt_classes[fg_inds]
@@ -436,14 +487,16 @@ class FastRCNNOutputs:
         # print(fg_gt_classes)
         # print(self.pred_depth[fg_inds, fg_gt_classes])
 
-        loss = smooth_l1_loss(
-                self.pred_depth[fg_inds, fg_gt_classes],
-                self.gt_depth[fg_inds],
-                self.smooth_l1_beta,
-                reduction="sum",
-            )
-        return loss / 50 / self.gt_classes.numel()
+        pred_delta = self.pred_depth[fg_inds, fg_gt_classes] / self.gt_depth[fg_inds]
+        ones = torch.ones_like(self.gt_depth[fg_inds])
 
+        loss = smooth_l1_loss(
+            pred_delta,
+            ones,
+            self.smooth_l1_beta,
+            reduction="sum",
+        )
+        return loss / self.gt_classes.numel()
 
     def base_reg_loss(self):
         """
@@ -486,53 +539,8 @@ class FastRCNNOutputs:
         # y1 = self.proposals.tensor[:, 1]
         # x2 = self.proposals.tensor[:, 2]
         # y2 = self.proposals.tensor[:, 3]
-        x1 = pred_boxes[:, 0]
-        y1 = pred_boxes[:, 1]
-        x2 = pred_boxes[:, 2]
-        y2 = pred_boxes[:, 3]
-        pred_boxes_midx = (x1 + x2) / 2
-        pred_boxes_midy = (y1 + y2) / 2
-        pred_boxes_mid = torch.stack((pred_boxes_midx, pred_boxes_midy), dim=1)
-        dx = x2 - x1
-        dy = y2 - y1
-        delta_boxes = torch.stack((dx, dy), dim=1)
-        gt_bases_midx = (self.gt_bases[:, 0] + self.gt_bases[:, 2] + self.gt_bases[:, 4] + self.gt_bases[:, 6]) / 4
-        gt_bases_midy = (self.gt_bases[:, 1] + self.gt_bases[:, 3] + self.gt_bases[:, 5] + self.gt_bases[:, 7]) / 4
-        gt_bases_midx1 = self.gt_bases[:, 0]
-        gt_bases_midy1 = self.gt_bases[:, 1]
-        gt_bases_midx2 = self.gt_bases[:, 2]
-        gt_bases_midy2 = self.gt_bases[:, 3]
-        gt_bases_midx3 = self.gt_bases[:, 0]
-        gt_bases_midy3 = self.gt_bases[:, 1]
-        gt_bases_midx4 = self.gt_bases[:, 2]
-        gt_bases_midy4 = self.gt_bases[:, 3]
-
-        gt_bases_midx1 = gt_bases_midx1 - gt_bases_midx
-        gt_bases_midy1 = gt_bases_midy1 - gt_bases_midy
-        gt_bases_midx2 = gt_bases_midx2 - gt_bases_midx
-        gt_bases_midy2 = gt_bases_midy2 - gt_bases_midy
-        gt_bases_midx3 = gt_bases_midx3 - gt_bases_midx
-        gt_bases_midy3 = gt_bases_midy3 - gt_bases_midy
-        gt_bases_midx4 = gt_bases_midx4 - gt_bases_midx
-        gt_bases_midy4 = gt_bases_midy4 - gt_bases_midy
-
-        gt_bases_midx = gt_bases_midx - pred_boxes_midx
-        gt_bases_midy = gt_bases_midy - pred_boxes_midy
-        gt_bases_midx = gt_bases_midx / dx
-        gt_bases_midy = gt_bases_midy / dy
-        gt_bases_mid = torch.stack((gt_bases_midx, gt_bases_midy), dim=1)
-
-        gt_bases_r3 = gt_bases_midx3 / gt_bases_midx2
-        gt_bases_r4 = gt_bases_midx4 / gt_bases_midx1
-        gt_bases_midx1 = gt_bases_midx1 / dx
-        gt_bases_midy1 = gt_bases_midy1 / dy
-        gt_bases_midx2 = gt_bases_midx2 / dx
-        gt_bases_midy2 = gt_bases_midy2 / dy
-
-        gt_h_delta = (self.gt_h - dy) / dy
-
-        gt_bases_delta = torch.stack((gt_bases_midx, gt_bases_midy, gt_bases_midx1, gt_bases_midy1,
-                                      gt_bases_midx2, gt_bases_midy2, gt_h_delta), dim=1)
+        gt_bases_delta = bases_to_delta(self.gt_bases[:, 0:8], pred_boxes)
+        gt_top_delta = bases_to_delta(self.gt_bases[:, 8:16], pred_boxes)
 
         pred_boxes_fg = pred_boxes[fg_inds]
         pred_bases_transformed = self.pred_bases[fg_inds[:, None], gt_class_cols]
@@ -543,8 +551,13 @@ class FastRCNNOutputs:
         IOU = True
         if not IOU:
             loss_base_reg = smooth_l1_loss(
-                self.pred_bases[fg_inds[:, None], gt_class_cols],
+                self.pred_bases[fg_inds[:, None], gt_class_cols][:, 0:8],
                 gt_bases_delta[fg_inds],
+                self.smooth_l1_beta,
+                reduction="sum",
+            ) + smooth_l1_loss(
+                self.pred_bases[fg_inds[:, None], gt_class_cols][:, 8:16],
+                gt_top_delta[fg_inds],
                 self.smooth_l1_beta,
                 reduction="sum",
             )
@@ -554,6 +567,17 @@ class FastRCNNOutputs:
             gts = self.gt_bases[fg_inds]
             loss_base_reg = batch_poly_diou_loss(pred_bases_bottom.view(-1, 4, 2), gts[:, 0:8].view(-1, 4, 2)).sum() \
                             + batch_poly_diou_loss(pred_bases_top.view(-1, 4, 2), gts[:, 8:16].view(-1, 4, 2)).sum()
+            loss_base_reg += smooth_l1_loss(
+                self.pred_bases[fg_inds[:, None], gt_class_cols][:, 0:8],
+                gt_bases_delta[fg_inds],
+                self.smooth_l1_beta,
+                reduction="sum",
+            ) + smooth_l1_loss(
+                self.pred_bases[fg_inds[:, None], gt_class_cols][:, 8:16],
+                gt_top_delta[fg_inds],
+                self.smooth_l1_beta,
+                reduction="sum",
+            )
             # print(loss_base_reg)
             # loss_base_reg_loop = 0
             # for idx in range(pred_bases_bottom.shape[0]):
@@ -579,7 +603,7 @@ class FastRCNNOutputs:
         # means that the single example in minibatch (1) and each of the 100 examples
         # in minibatch (2) are given equal influence.
         # print(loss_base_reg)
-        loss_base_reg = loss_base_reg / self.gt_classes.numel()
+        loss_base_reg = loss_base_reg / self.gt_classes.numel() / 4
         # print(loss_base_reg)
         return loss_base_reg
 
