@@ -4,6 +4,7 @@ import cv2
 
 device = 'cuda'
 
+
 def poly_area(polygon):
     """
     Returns the area of the polygon
@@ -22,7 +23,6 @@ def poly_area(polygon):
 
 
 def torch_wn(pnts, poly, return_winding=False):
-
     x0, y0 = poly[:].T  # polygon `from` coordinates
     x1, y1 = torch.roll(poly, -1, 0).T  # polygon `to` coordinates
 
@@ -34,16 +34,16 @@ def torch_wn(pnts, poly, return_winding=False):
     chk1 = (y_y0 > 0.0)
     chk2 = torch.lt(y[:, None], y1)  # pnts[:, 1][:, None], poly[1:, 1])
     chk3 = torch.sign(diff_)
-    #print('chk1 is:\n', chk1)
-    #print('chk2 is:\n', chk2)
-    #print('chk3 is:\n', chk3)
+    # print('chk1 is:\n', chk1)
+    # print('chk2 is:\n', chk2)
+    # print('chk3 is:\n', chk3)
 
     pos = (chk1 & chk2 & (chk3 > 0)).sum(axis=1, dtype=int)
     neg = (~chk1 & ~chk2 & (chk3 < 0)).sum(axis=1, dtype=int)
     wn = pos - neg
-    #print(wn)
-    #print(torch.nonzero(wn))
-    #print('with pnts', pnts)
+    # print(wn)
+    # print(torch.nonzero(wn))
+    # print('with pnts', pnts)
     out_ = pnts[torch.nonzero(wn)[:, 0]]
     if return_winding:
         return out_, wn
@@ -119,7 +119,6 @@ def c_poly_iou(poly1, poly2):
     # print(intersections)
     polyi = clockify(union)
 
-
     a1 = poly_area(poly1)
     a2 = poly_area(poly2)
     ai = poly_area(polyi)
@@ -137,6 +136,7 @@ def c_poly_iou(poly1, poly2):
 def c_poly_loss(poly1, poly2):
     return 1 - c_poly_iou(poly1, poly2)
 
+
 def batch_poly_area(polys):
     x1 = polys[:, :, 0]
     y1 = polys[:, :, 1]
@@ -149,10 +149,10 @@ def batch_poly_area(polys):
 
     return area
 
-def batch_clockify(polygons, clockwise=True):
 
-    center = torch.mean(polygons, dim= 1)
-    
+def batch_clockify(polygons, clockwise=True):
+    center = torch.mean(polygons, dim=1)
+
     diff = polygons - center.unsqueeze(1).expand(polygons.shape)
     tan = torch.atan(diff[:, :, 1] / diff[:, :, 0])
     direction = (torch.sign(diff[:, :, 0]) - 1) / 2.0 * -np.pi
@@ -161,18 +161,17 @@ def batch_clockify(polygons, clockwise=True):
 
     sorted_idxs = torch.argsort(angle)
 
-
     if not clockwise:
         sorted_idxs.reverse()
 
     first_indices = torch.arange(sorted_idxs.shape[0])[:, None]
     polygons = polygons[first_indices, sorted_idxs.detach()]
 
-
     return polygons
 
-def batch_torch_wn(pntss, polys, return_winding=False):
 
+def batch_torch_wn(pntss, polys, return_winding=False):
+    device = polys.device
     x0, y0 = torch.transpose(polys, 0, 2).transpose(-2, -1)  # polygon `from` coordinates
     x1, y1 = torch.transpose(torch.roll(polys, -1, 1), 0, 2).transpose(-2, -1)  # polygon `to` coordinates
 
@@ -184,27 +183,28 @@ def batch_torch_wn(pntss, polys, return_winding=False):
     chk1 = (y_y0 > 0.0)
     chk2 = torch.lt(y[:, :, None], y1[:, None])  # pnts[:, 1][:, None], poly[1:, 1])
     chk3 = torch.sign(diff_)
-    #print('chk1 is:\n', chk1)
-    #print('chk2 is:\n', chk2)
-    #print('chk3 is:\n', chk3)
+    # print('chk1 is:\n', chk1)
+    # print('chk2 is:\n', chk2)
+    # print('chk3 is:\n', chk3)
 
     pos = (chk1 & chk2 & (chk3 > 0)).sum(axis=2, dtype=int)
     neg = (~chk1 & ~chk2 & (chk3 < 0)).sum(axis=2, dtype=int)
     wn = pos - neg
-    #print(wn)
-    #print(torch.nonzero(wn))
-    #print('with pntss:', pntss)
+    # print(wn)
+    # print(torch.nonzero(wn))
+    # print('with pntss:', pntss)
     out_ = torch.zeros((pntss.shape[0], 4, 2)).to(device)
-    idxs = torch.where(wn!=0)
-    out_[idxs] = pntss[idxs] 
-    
-    #out_ = pntss[torch.nonzero(wn)[:, 0]]
+    idxs = torch.where(wn != 0)
+    out_[idxs] = pntss[idxs]
+
+    # out_ = pntss[torch.nonzero(wn)[:, 0]]
     if return_winding:
         return out_, wn
     return out_
 
-def batch_poly_iou(polys1, polys2):
 
+def batch_poly_iou(polys1, polys2):
+    device = polys1.device
     b = polys1.shape[0]
 
     polys1 = batch_clockify(polys1)
@@ -225,11 +225,9 @@ def batch_poly_iou(polys1, polys2):
     x4 = xy4[:, :, :, 0]
     y4 = xy4[:, :, :, 1]
 
-
     D = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
     Nx = ((x1 * y2 - x2 * y1) * (x3 - x4) - (x3 * y4 - x4 * y3) * (x1 - x2)) / D
     Ny = ((x1 * y2 - x2 * y1) * (y3 - y4) - (x3 * y4 - x4 * y3) * (y1 - y2)) / D
-
 
     # get points that intersect in valid range (Nx should be greater than exactly one of x1,x2 and exactly one of x3,x4)
     s1 = torch.sign(Nx - x1)
@@ -244,20 +242,17 @@ def batch_poly_iou(polys1, polys2):
 
     a1 = batch_poly_area(polys1)
     a2 = batch_poly_area(polys2)
-    ai = torch.empty(a1.shape).to('cuda')
+    # ai = torch.empty(a1.shape).to('cuda')
 
-
-    
     polys1_np_keep = batch_torch_wn(polys1, polys2)
     polys2_np_keep = batch_torch_wn(polys2, polys1)
 
-    keep = torch.where(s_total.reshape(b, -1)!=0)
+    keep = torch.where(s_total.reshape(b, -1) != 0)
 
     Nx = Nx.reshape(b, -1)
     Ny = Ny.reshape(b, -1)
 
-    Nxy = torch.cat((Nx[...,None], Ny[...,None]), dim=-1)
-
+    Nxy = torch.cat((Nx[..., None], Ny[..., None]), dim=-1)
 
     intersections = torch.zeros((b, 16, 2)).to(device)
 
@@ -273,12 +268,12 @@ def batch_poly_iou(polys1, polys2):
 
     new_int = torch.zeros((b, 8, 2)).to(device)
 
-    new_int = union[:, 16: ,:]
+    new_int = union[:, 16:, :]
 
     comb = new_int.abs().mean(dim=-1)
 
     max = torch.max(comb, dim=1, keepdim=True)[1].reshape(-1)
-    
+
     head = torch.arange(b).to(device)
 
     cat = torch.cat([head, max], dim=0)
@@ -290,18 +285,24 @@ def batch_poly_iou(polys1, polys2):
 
     alt = alt.unsqueeze(1).repeat(1, 8, 1).detach()
 
-    idxs = torch.where(comb==0)
+    idxs = torch.where(comb == 0)
 
     new_int[idxs] = alt[idxs]
 
     polyi = batch_clockify(new_int)
 
-
     ai = batch_poly_area(polyi)
 
-
-
     iou = ai / (a1 + a2 - ai + 1e-10)
+
+    if iou > 10:
+        print(polys1)
+        print(polys2)
+        print(polyi)
+        print(ai)
+        print(a1)
+        print(a2)
+        print(iou)
 
     return iou
 
@@ -320,7 +321,7 @@ def batch_poly_diou_loss(polys1, polys2):
 
     d_sqd = torch.sum(torch.square(poly_1_mid - poly_2_mid), dim=1)
 
-    return 1 - iou + d_sqd / c_sqd
+    return 1 - iou + d_sqd / (c_sqd + 1e-10)
 
 
 def c_poly_diou_loss(poly1, poly2):
@@ -344,8 +345,7 @@ def c_poly_diou_loss(poly1, poly2):
     # the euclidian distance between the center point of two polygons
     d_sqd = torch.sum(torch.square(poly_1_mid - poly_2_mid))
 
-
-    return 1 - iou + d_sqd / c_sqd
+    return 1 - iou + d_sqd / (c_sqd + 1e-10)
 
 
 def clockify(polygon, clockwise=True):
@@ -367,11 +367,8 @@ def clockify(polygon, clockwise=True):
 
     sorted_idxs = torch.argsort(angle)
 
-
     if not clockwise:
         sorted_idxs.reverse()
 
     polygon = polygon[sorted_idxs.detach(), :]
     return polygon
-
-
