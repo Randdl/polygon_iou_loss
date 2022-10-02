@@ -295,7 +295,7 @@ def batch_poly_iou(polys1, polys2):
 
     iou = ai / (a1 + a2 - ai + 1e-10)
 
-    if iou > 10:
+    if (iou > 10).any():
         print(polys1)
         print(polys2)
         print(polyi)
