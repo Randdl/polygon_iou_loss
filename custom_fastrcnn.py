@@ -738,7 +738,7 @@ class NewFastRCNNOutputLayers(nn.Module):
         self.test_topk_per_image = test_topk_per_image
         self.box_reg_loss_type = box_reg_loss_type
         if isinstance(loss_weight, float):
-            loss_weight = {"loss_cls": loss_weight, "loss_box_reg": loss_weight, "loss_base_reg": loss_weight}
+            loss_weight = {"loss_cls": loss_weight, "loss_box_reg": loss_weight, "loss_base_reg": loss_weight, "loss_depth_reg": loss_weight}
         self.loss_weight = loss_weight
         # modified
         # for param in self.parameters():
@@ -822,7 +822,10 @@ class NewFastRCNNOutputLayers(nn.Module):
         # for param in self.parameters():
         #     print(param)
         # return {}
-        return {k: v * self.loss_weight.get(k, 1.0) for k, v in losses.items()}
+
+        # modified
+        return losses
+        # return {k: v * self.loss_weight.get(k, 1.0) for k, v in losses.items()}
 
     def inference(self, predictions: Tuple[Tuple[torch.Tensor, torch.Tensor], torch.Tensor, torch.Tensor],
                   proposals: List[Instances]):
