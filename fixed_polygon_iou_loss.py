@@ -293,9 +293,9 @@ def batch_poly_iou(polys1, polys2):
 
     ai = batch_poly_area(polyi)
 
-    iou = ai / (a1 + a2 - ai + 1e-10)
+    iou = ai / (a1 + a2 - ai + 1e-3)
 
-    if (iou > 10).any():
+    if (iou > 1).any() or (iou < 0).any():
         print(polys1)
         print(polys2)
         print(polyi)
@@ -307,21 +307,21 @@ def batch_poly_iou(polys1, polys2):
     return iou
 
 
-def batch_poly_diou_loss(polys1, polys2):
+def batch_poly_diou_loss(polys1, polys2, a=1):
     iou = batch_poly_iou(polys1, polys2)
     x_min = torch.min(torch.min(polys1[:, :, 0], dim=1)[0], torch.min(polys2[:, :, 0], dim=1)[0])
     x_max = torch.max(torch.max(polys1[:, :, 0], dim=1)[0], torch.max(polys2[:, :, 0], dim=1)[0])
     y_min = torch.min(torch.min(polys1[:, :, 1], dim=1)[0], torch.min(polys2[:, :, 1], dim=1)[0])
     y_max = torch.max(torch.max(polys1[:, :, 1], dim=1)[0], torch.max(polys2[:, :, 1], dim=1)[0])
 
-    c_sqd = torch.square(x_max - x_min) + torch.square(y_max - y_min)
+    c_sqd = torch.sqrt(torch.square(x_max - x_min) + torch.square(y_max - y_min))
 
     poly_1_mid = torch.mean(polys1, dim=1)
     poly_2_mid = torch.mean(polys2, dim=1)
 
-    d_sqd = torch.sum(torch.square(poly_1_mid - poly_2_mid), dim=1)
+    d_sqd = torch.sqrt(torch.sum(torch.square(poly_1_mid - poly_2_mid), dim=1))
 
-    return 1 - iou + d_sqd / (c_sqd + 1e-10)
+    return 1 - iou + a * d_sqd / (c_sqd + 1e-3)
 
 
 def c_poly_diou_loss(poly1, poly2):
