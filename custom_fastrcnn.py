@@ -565,8 +565,10 @@ class FastRCNNOutputs:
             # preds = self.pred_bases[fg_inds[:, None], gt_class_cols]
             # print(preds.shape)
             gts = self.gt_bases[fg_inds]
-            loss_base_reg = batch_poly_diou_loss(pred_bases_bottom.view(-1, 4, 2), gts[:, 0:8].view(-1, 4, 2)).sum() \
-                            + batch_poly_diou_loss(pred_bases_top.view(-1, 4, 2), gts[:, 8:16].view(-1, 4, 2)).sum()
+            loss_base_reg = batch_poly_diou_loss(pred_bases_bottom.view(-1, 4, 2), gts[:, 0:8].view(-1, 4, 2),
+                                                 a=1).sum() \
+                            + batch_poly_diou_loss(pred_bases_top.view(-1, 4, 2), gts[:, 8:16].view(-1, 4, 2),
+                                                   a=1).sum()
             loss_base_reg += smooth_l1_loss(
                 self.pred_bases[fg_inds[:, None], gt_class_cols][:, 0:8],
                 gt_bases_delta[fg_inds],
@@ -603,7 +605,7 @@ class FastRCNNOutputs:
         # means that the single example in minibatch (1) and each of the 100 examples
         # in minibatch (2) are given equal influence.
         # print(loss_base_reg)
-        loss_base_reg = loss_base_reg / self.gt_classes.numel() / 4
+        loss_base_reg = loss_base_reg / self.gt_classes.numel() / 16
         # print(loss_base_reg)
         return loss_base_reg
 
@@ -738,7 +740,8 @@ class NewFastRCNNOutputLayers(nn.Module):
         self.test_topk_per_image = test_topk_per_image
         self.box_reg_loss_type = box_reg_loss_type
         if isinstance(loss_weight, float):
-            loss_weight = {"loss_cls": loss_weight, "loss_box_reg": loss_weight, "loss_base_reg": loss_weight, "loss_depth_reg": loss_weight}
+            loss_weight = {"loss_cls": loss_weight, "loss_box_reg": loss_weight, "loss_base_reg": loss_weight,
+                           "loss_depth_reg": loss_weight}
         self.loss_weight = loss_weight
         # modified
         # for param in self.parameters():
