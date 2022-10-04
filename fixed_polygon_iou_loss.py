@@ -295,14 +295,15 @@ def batch_poly_iou(polys1, polys2):
 
     iou = ai / (a1 + a2 - ai + 1e-3)
 
-    if (iou > 1).any() or (iou < 0).any():
-        print(polys1)
-        print(polys2)
-        print(polyi)
-        print(ai)
-        print(a1)
-        print(a2)
-        print(iou)
+    outlier = torch.logical_or(iou > 1, iou < 0)
+    if outlier.any():
+        print(polys1[outlier, :, :])
+        print(polys2[outlier, :, :])
+        print(polyi[outlier, :, :])
+        print(ai[outlier])
+        print(a1[outlier])
+        print(a2[outlier])
+        print(iou[outlier])
 
     return iou
 
