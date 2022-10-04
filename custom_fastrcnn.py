@@ -120,10 +120,10 @@ def delta_to_bases(bases, boxes):
     y1 = midy + firsty * dy
     x2 = midx + secondx * dx
     y2 = midy + secondy * dy
-    x3 = midx - firstx * dx * ratio1
-    y3 = midy - firsty * dy * ratio1
-    x4 = midx - secondx * dx * ratio2
-    y4 = midy - secondy * dy * ratio2
+    x3 = midx - firstx * dx * (1 + ratio1)
+    y3 = midy - firsty * dy * (1 + ratio1)
+    x4 = midx - secondx * dx * (1 + ratio2)
+    y4 = midy - secondy * dy * (1 + ratio2)
 
     return torch.stack((x1, y1, x2, y2, x3, y3, x4, y4, midx, midy), dim=-1)
 
@@ -165,8 +165,8 @@ def bases_to_delta(bases, boxes):
     gt_bases_midy = gt_bases_midy / dy
     gt_bases_mid = torch.stack((gt_bases_midx, gt_bases_midy), dim=1)
 
-    gt_bases_r3 = gt_bases_midx3 / gt_bases_midx1
-    gt_bases_r4 = gt_bases_midx4 / gt_bases_midx2
+    gt_bases_r3 = gt_bases_midx3 / gt_bases_midx1 - 1
+    gt_bases_r4 = gt_bases_midx4 / gt_bases_midx2 - 1
     gt_bases_midx1 = gt_bases_midx1 / dx
     gt_bases_midy1 = gt_bases_midy1 / dy
     gt_bases_midx2 = gt_bases_midx2 / dx
