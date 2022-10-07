@@ -102,16 +102,24 @@ def transform_instance_annotations(
         transforms = T.TransformList(transforms)
     # bbox is 1d (per-instance bounding box)
     bbox = annotation["bbox"]
-    base = np.transpose(annotation["base"])
     # base = transforms.apply_coords(base)
     # clip transformed bbox to image size
     transforms = ResizeTransform(370, 1224, 370, 1224)
     bbox = transforms.apply_box(np.array([bbox]))[0].clip(min=0)
-    # print(bbox)
+
+    base = np.transpose(annotation["base"])
     base = base.flatten()
-    # print(base)
-    annotation["bbox"] = np.minimum(bbox, list(image_size + image_size)[::-1])
     annotation["base"] = base
+
+    centered_vertices = np.transpose(annotation["centered_vertices"])
+    centered_vertices = centered_vertices.flatten()
+    annotation["centered_vertices"] = centered_vertices
+
+    ver_disp = np.transpose(annotation["ver_disp"])
+    ver_disp = ver_disp.flatten()
+    annotation["ver_disp"] = ver_disp
+
+    annotation["bbox"] = np.minimum(bbox, list(image_size + image_size)[::-1])
     annotation["bbox_mode"] = BoxMode.XYXY_ABS
 
     return annotation
@@ -134,17 +142,35 @@ def annotations_to_instances(annos, image_size, mask_format="polygon"):
             This is the format that builtin models expect.
     """
     boxes = [BoxMode.convert(obj["bbox"], obj["bbox_mode"], BoxMode.XYXY_ABS) for obj in annos]
-    bases = [obj["base"] for obj in annos]
+
     target = Instances(image_size)
     target.gt_boxes = Boxes(boxes)
+    bases = [obj["base"] for obj in annos]
     device = bases.device if isinstance(bases, torch.Tensor) else torch.device("cpu")
     bases = torch.as_tensor(bases, dtype=torch.float32, device=device)
-    # print("bases: {}".format(bases.shape))
     if bases.numel() == 0:
         # Use reshape, so we don't end up creating a new tensor that does not depend on
         # the inputs (and consequently confuses jit)
         bases = bases.reshape((0, 4)).to(dtype=torch.float32, device=device)
     target.gt_bases = bases
+
+    centered_vertices = [obj["centered_vertices"] for obj in annos]
+    device = centered_vertices.device if isinstance(centered_vertices, torch.Tensor) else torch.device("cpu")
+    centered_vertices = torch.as_tensor(centered_vertices, dtype=torch.float32, device=device)
+    if centered_vertices.numel() == 0:
+        # Use reshape, so we don't end up creating a new tensor that does not depend on
+        # the inputs (and consequently confuses jit)
+        centered_vertices = centered_vertices.reshape((0, 8)).to(dtype=torch.float32, device=device)
+    target.gt_centered_vertices = centered_vertices
+
+    ver_disp = [obj["ver_disp"] for obj in annos]
+    device = ver_disp.device if isinstance(ver_disp, torch.Tensor) else torch.device("cpu")
+    ver_disp = torch.as_tensor(ver_disp, dtype=torch.float32, device=device)
+    if ver_disp.numel() == 0:
+        # Use reshape, so we don't end up creating a new tensor that does not depend on
+        # the inputs (and consequently confuses jit)
+        ver_disp = ver_disp.reshape((0, 4)).to(dtype=torch.float32, device=device)
+    target.gt_ver_disp = ver_disp
 
     classes = [int(obj["category_id"]) for obj in annos]
     classes = torch.tensor(classes, dtype=torch.int64)

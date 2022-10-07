@@ -42,10 +42,10 @@ def batch_computeBox3D(label, P):
     R3 = torch.stack((-torch.sin(ry), torch.zeros(size), torch.cos(ry)), dim=1)
     R = torch.stack((R1, R2, R3), dim=2)
 
-    x_corners = torch.stack((-l/2, l/2, l/2, l/2, l/2, -l/2, -l/2, -l/2), dim=1)  # -l/2
+    x_corners = torch.stack((-l / 2, l / 2, l / 2, l / 2, l / 2, -l / 2, -l / 2, -l / 2), dim=1)  # -l/2
     y_corners = torch.stack((-h, -h, torch.zeros(size), torch.zeros(size),
                              -h, -h, torch.zeros(size), torch.zeros(size)), dim=1)  # -h
-    z_corners = torch.stack((-w/2, -w/2, -w/2, w/2, w/2, w/2, w/2, -w/2), dim=1)  # -w/2
+    z_corners = torch.stack((-w / 2, -w / 2, -w / 2, w / 2, w / 2, w / 2, w / 2, -w / 2), dim=1)  # -w/2
 
     corners_3D = torch.stack((x_corners, y_corners, z_corners), dim=1)
 
@@ -86,7 +86,6 @@ def np_computeBox3D(label, P):
     x_corners = [i - l / 2 for i in x_corners]
     y_corners = [i - h for i in y_corners]
     z_corners = [i - w / 2 for i in z_corners]
-
 
     corners_3D = np.array([x_corners, y_corners, z_corners])
 
@@ -200,7 +199,10 @@ def computeBox3D(label, P):
 
     base_3Dto2D = np.concatenate((first_two, second_two, top_first_two, top_second_two), axis=1)
     # print(base_3Dto2D)
-    return base_3Dto2D, corners_2D, corners_3D, bb2d_lines_verts[:2], depth
+
+    ver_coor = corners_2D[:, [1, 0, 3, 2, 4, 5, 6, 7]]
+
+    return base_3Dto2D, corners_2D, corners_3D, bb2d_lines_verts[:2], depth, ver_coor
 
 
 class Kitti(VisionDataset):
@@ -380,7 +382,8 @@ class Kitti(VisionDataset):
         with open(self.targets[index]) as inp:
             content = csv.reader(inp, delimiter=" ")
             for line in content:
-                base_3Dto2D, corners_2D, corners_3D, paths_2D, depth = computeBox3D([float(x) for x in line[8:15]], P2_rect)
+                base_3Dto2D, corners_2D, corners_3D, paths_2D, depth, vertices = computeBox3D([float(x) for x in line[8:15]],
+                                                                                    P2_rect)
                 corners_velo = computeVelodyne(corners_3D, velo_to_cam)
                 corners_imu = computeVelodyne(corners_velo, imu_to_velo)
                 target.append(
@@ -396,6 +399,7 @@ class Kitti(VisionDataset):
                         "3dbox": corners_2D,
                         "calib": P2_rect,
                         "origin3d": [float(x) for x in line[8:15]],
+                        "ver": corners_2D,
                         # "dimensions": [float(x) for x in line[8:11]],
                         # "location": [float(x) for x in line[11:14]],
                         # "rotation_y": float(line[14]),
@@ -456,20 +460,37 @@ class Kitti(VisionDataset):
         for idx in range(len(target)):
             base = target[idx]['3dbox']
             bbox = target[idx]['bbox']
-            corners = target[idx]['corners']
+            vertices = target[idx]['ver']
             print(target[idx]['type'])
-            print(bbox)
-            print(base)
+            print(vertices)
+
             # plt.scatter(x=corners[0, :], y=corners[1, :], s=40, color="w")
-            plt.scatter(x=base[0, :], y=base[1, :], s=20, color="r")
-            print(base[0, 0], base[1, 0])
+            # plt.scatter(x=base[0, :], y=base[1, :], s=20, color="r")
             # plt.scatter(x=base[0, 1], y=base[1, 1], s=20, color="w")
             # plt.scatter(x=base[0, 2], y=base[1, 2], s=20, color="y")
             # plt.scatter(x=base[0, 3], y=base[1, 3], s=20, color="g")
-            plt.scatter(x=bbox[0], y=bbox[1], s=20, color="b")
-            plt.scatter(x=bbox[2], y=bbox[3], s=20, color="b")
+            # plt.scatter(x=bbox[0], y=bbox[1], s=20, color="b")
+            # plt.scatter(x=bbox[2], y=bbox[3], s=20, color="b")
+            plt.scatter(x=vertices[0, 3], y=vertices[1, 3], s=10, color="b")
+            plt.scatter(x=vertices[0, 7], y=vertices[1, 7], s=10, color="r")
+            plt.scatter(x=vertices[0, 4], y=vertices[1, 4], s=10, color="y")
+            plt.scatter(x=vertices[0, 5], y=vertices[1, 5], s=10, color="g")
         plt.imshow(sample['image'])
         plt.show()
+
+
+def polys_to_dis(polys, boxes):
+    x1 = boxes[0]
+    y1 = boxes[1]
+    x2 = boxes[2]
+    y2 = boxes[3]
+    half_dx = (x2 - x1) / 2
+    half_dy = (y2 - y1) / 2
+    bbox = np.array([-half_dx, half_dy, half_dx, half_dy, half_dx, -half_dy, -half_dx, -half_dy])
+    disp = polys
+    disp[0:8] = disp[0:8] - bbox
+    disp[8:16] = disp[8:16] - bbox
+    return disp
 
 
 def load_dataset_detectron2(root="..", train=True, test=False):
@@ -543,6 +564,11 @@ def load_dataset_detectron2(root="..", train=True, test=False):
         with open(targets[idx]) as inp:
             content = csv.reader(inp, delimiter=" ")
             for line in content:
+                bbox = np.array([float(x) for x in line[4:8]])
+                bbox_center_x = (bbox[0] + bbox[2]) / 2
+                bbox_center_y = (bbox[1] + bbox[3]) / 2
+                bbox_center = np.array([bbox_center_x, bbox_center_y])
+
                 # if float(line[4]) < 1 or float(line[5]) < 1 or float(line[6]) < 1 or float(line[7]) < 1:
                 #     print([float(x) for x in line[4:8]])
                 # continue
@@ -556,7 +582,10 @@ def load_dataset_detectron2(root="..", train=True, test=False):
                     continue
                 # if abs(float(line[6]) - float(line[4])) < 8 or abs(float(line[7]) - float(line[5])) < 8:
                 #     continue
-                base_3Dto2D, corners_2D, _, _, depth = computeBox3D([float(x) for x in line[8:15]], P2_rect)
+                base_3Dto2D, corners_2D, _, _, depth, vertices = computeBox3D([float(x) for x in line[8:15]], P2_rect)
+                centered_vertices = vertices
+                centered_vertices[0, :] = centered_vertices[0, :] - bbox_center_x
+                centered_vertices[1, :] = centered_vertices[1, :] - bbox_center_y
                 DISCARD = True
                 if DISCARD:
                     # print(base_3Dto2D < 0 or base_3Dto2D > 1222)
@@ -576,12 +605,16 @@ def load_dataset_detectron2(root="..", train=True, test=False):
                     category_id = 2
                 else:
                     continue
+                ver_disp = polys_to_dis(vertices, bbox)
                 obj = {
                     "iscrowd": 0,
                     "bbox": [float(x) for x in line[4:8]],
                     "bbox_mode": BoxMode.XYXY_ABS,
                     "category_id": category_id,
                     "base": base_3Dto2D,
+                    "vertices": vertices,
+                    "centered_vertices": centered_vertices,
+                    "ver_disp": ver_disp,
                     "h": corners_2D[1, 2] - corners_2D[1, 0],
                     "depth": depth,
                 }

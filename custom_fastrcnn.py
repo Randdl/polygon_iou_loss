@@ -98,6 +98,19 @@ def delta_to_h(delta_h, boxes):
     return dy + delta_h * dy
 
 
+def disp_to_polys(dis, boxes):
+    x1 = boxes[::, 0]
+    y1 = boxes[::, 1]
+    x2 = boxes[::, 2]
+    y2 = boxes[::, 3]
+    half_dx = (x2 - x1) / 2
+    half_dy = (y2 - y1) / 2
+    poly = torch.stack((-half_dx, half_dy, half_dx, half_dy, half_dx, -half_dy, -half_dx, -half_dy), dim=-1)
+    poly1 = dis[::, 0:8] + poly
+    poly2 = dis[::, 8:16] + poly
+    return poly1, poly2
+
+
 def delta_to_bases(bases, boxes):
     midx = bases[::, 0]
     midy = bases[::, 1]
@@ -356,6 +369,10 @@ class FastRCNNOutputs:
                 self.gt_depth = cat([p.gt_depth for p in proposals], dim=0)
                 assert proposals[0].has("gt_bases")
                 self.gt_bases = cat([p.gt_bases for p in proposals], dim=0)
+                assert proposals[0].has("gt_centered_vertices")
+                self.gt_centered_vertices = cat([p.gt_centered_vertices for p in proposals], dim=0)
+                assert proposals[0].has("gt_ver_disp")
+                self.gt_ver_disp = cat([p.gt_ver_disp for p in proposals], dim=0)
         else:
             self.proposals = Boxes(torch.zeros(0, 4, device=self.pred_proposal_deltas.device))
         self._no_instances = len(self.proposals) == 0  # no instances found
@@ -534,21 +551,40 @@ class FastRCNNOutputs:
         gt_class_cols_boxes = torch.arange(4, device=device)
         pred_boxes = self.box2box_transform.apply_deltas(self.pred_proposal_deltas[:, gt_class_cols_boxes],
                                                          self.proposals.tensor)
+        pred_bases_transformed = self.pred_bases[fg_inds[:, None], gt_class_cols]
+        IOU = True
+        USE_VERTICES = True
 
-        # x1 = self.proposals.tensor[:, 0]
-        # y1 = self.proposals.tensor[:, 1]
-        # x2 = self.proposals.tensor[:, 2]
-        # y2 = self.proposals.tensor[:, 3]
+        if USE_VERTICES:
+            if IOU:
+                boxes = self.gt_boxes.tensor[fg_inds]
+                poly1, poly2 = disp_to_polys(pred_bases_transformed, boxes)
+                centered_vertices = self.gt_centered_vertices[fg_inds]
+                ver_disp = self.gt_ver_disp[fg_inds]
+                loss_base_reg = batch_poly_diou_loss(poly1.view(-1, 4, 2), centered_vertices[:, 0:8].view(-1, 4, 2),
+                                                     a=0).sum() \
+                                + batch_poly_diou_loss(poly2.view(-1, 4, 2), centered_vertices[:, 8:16].view(-1, 4, 2),
+                                                       a=0).sum()
+                loss_base_reg = loss_base_reg / 2
+
+                loss_base_reg += smooth_l1_loss(
+                    pred_bases_transformed,
+                    ver_disp,
+                    self.smooth_l1_beta,
+                    reduction="sum",
+                ) / 40 / 16
+
+                return loss_base_reg / self.gt_classes.numel()
+
         gt_bases_delta = bases_to_delta(self.gt_bases[:, 0:8], pred_boxes)
         gt_top_delta = bases_to_delta(self.gt_bases[:, 8:16], pred_boxes)
 
         pred_boxes_fg = pred_boxes[fg_inds]
-        pred_bases_transformed = self.pred_bases[fg_inds[:, None], gt_class_cols]
 
         pred_bases_bottom = delta_to_bases(pred_bases_transformed[:, 0:8], pred_boxes_fg)[:, 0:8]
         pred_bases_top = delta_to_bases(pred_bases_transformed[:, 8:16], pred_boxes_fg)[:, 0:8]
 
-        IOU = True
+
         if not IOU:
             loss_base_reg = smooth_l1_loss(
                 self.pred_bases[fg_inds[:, None], gt_class_cols][:, 0:8],
@@ -580,18 +616,6 @@ class FastRCNNOutputs:
                 self.smooth_l1_beta,
                 reduction="sum",
             )
-            # print(loss_base_reg)
-            # loss_base_reg_loop = 0
-            # for idx in range(pred_bases_bottom.shape[0]):
-            #     poly_loss = c_poly_diou_loss(pred_bases_bottom[idx, :].view(4, 2), gts[idx, 0:8].view(4, 2))
-            #     # print(poly_loss)
-            #     loss_base_reg_loop += poly_loss
-            #     poly_loss = c_poly_diou_loss(pred_bases_top[idx, :].view(4, 2), gts[idx, 8:16].view(4, 2))
-            #     loss_base_reg_loop += poly_loss
-            # print(loss_base_reg_loop)
-
-            # h_loss = torch.sum(torch.abs(delta_h - gt_h_delta[fg_inds]))
-            # loss_base_reg += h_loss
 
         # The loss is normalized using the total number of regions (R), not the number
         # of foreground regions even though the box regression loss is only defined on
@@ -717,7 +741,7 @@ class NewFastRCNNOutputLayers(nn.Module):
         nn.init.normal_(self.cls_score.weight, std=0.01)
         nn.init.normal_(self.bbox_pred.weight, std=0.001)
         # nn.init.normal_(self.base_pred.weight, mean=0.6, std=0.6)
-        nn.init.normal_(self.base_pred.weight, std=0.003)
+        nn.init.zeros_(self.base_pred.weight)
         nn.init.normal_(self.depth_pred.weight, std=0.003)
         # print(self.base_pred.weight.shape)
         # for idx in range(num_bbox_reg_classes):
