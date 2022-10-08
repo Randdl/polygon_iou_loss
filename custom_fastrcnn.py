@@ -106,6 +106,10 @@ def disp_to_polys(dis, boxes):
     half_dx = (x2 - x1) / 2
     half_dy = (y2 - y1) / 2
     poly = torch.stack((-half_dx, half_dy, half_dx, half_dy, half_dx, -half_dy, -half_dx, -half_dy), dim=-1)
+
+    dis[::, [0, 2, 4, 6, 8, 10, 12, 14]] = torch.mul(dis[::, [0, 2, 4, 6, 8, 10, 12, 14]], half_dx[:, None])
+    dis[::, [1, 3, 5, 7, 9, 11, 13, 15]] = torch.mul(dis[::, [1, 3, 5, 7, 9, 11, 13, 15]], half_dy[:, None])
+
     poly1 = dis[::, 0:8] + poly
     poly2 = dis[::, 8:16] + poly
     return poly1, poly2
@@ -565,14 +569,14 @@ class FastRCNNOutputs:
                                                      a=0).sum() \
                                 + batch_poly_diou_loss(poly2.view(-1, 4, 2), centered_vertices[:, 8:16].view(-1, 4, 2),
                                                        a=0).sum()
-                loss_base_reg = loss_base_reg / 2
+                loss_base_reg = loss_base_reg / 8
 
                 loss_base_reg += smooth_l1_loss(
                     pred_bases_transformed,
                     ver_disp,
                     self.smooth_l1_beta,
                     reduction="sum",
-                ) / 40 / 16
+                ) / 16
 
                 return loss_base_reg / self.gt_classes.numel()
 

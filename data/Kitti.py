@@ -488,8 +488,10 @@ def polys_to_dis(polys, boxes):
     half_dy = (y2 - y1) / 2
     bbox = np.array([-half_dx, half_dy, half_dx, half_dy, half_dx, -half_dy, -half_dx, -half_dy])
     disp = polys
-    disp[0:8] = disp[0:8] - bbox
-    disp[8:16] = disp[8:16] - bbox
+    disp[0, :] = disp[0, :] - bbox
+    disp[1, :] = disp[1, :] - bbox
+    disp[0, :] = disp[0, :] / half_dx
+    disp[1, :] = disp[1, :] / half_dy
     return disp
 
 
