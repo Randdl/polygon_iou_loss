@@ -175,6 +175,9 @@ def computeBox3D(label, P):
 
     corners_2D = corners_2D[:2]
     # print(corners_2D)
+
+    ver_coor = corners_2D[:, [1, 2, 3, 0, 4, 7, 6, 5]]
+
     base_indices = [2, 3, 6, 7]
     base_3Dto2D = corners_2D[:, base_indices]
     y_sort = np.argsort(base_3Dto2D[1, :])
@@ -199,8 +202,6 @@ def computeBox3D(label, P):
 
     base_3Dto2D = np.concatenate((first_two, second_two, top_first_two, top_second_two), axis=1)
     # print(base_3Dto2D)
-
-    ver_coor = corners_2D[:, [1, 0, 3, 2, 4, 5, 6, 7]]
 
     return base_3Dto2D, corners_2D, corners_3D, bb2d_lines_verts[:2], depth, ver_coor
 
@@ -486,10 +487,8 @@ def polys_to_dis(polys, boxes):
     y2 = boxes[3]
     half_dx = (x2 - x1) / 2
     half_dy = (y2 - y1) / 2
-    bbox = np.array([-half_dx, half_dy, half_dx, half_dy, half_dx, -half_dy, -half_dx, -half_dy])
-    disp = polys
-    disp[0, :] = disp[0, :] - bbox
-    disp[1, :] = disp[1, :] - bbox
+    bbox = np.array([[x1, x2, x2, x1, x1, x2, x2, x1], [y2, y2, y1, y1, y2, y2, y1, y1]])
+    disp = polys - bbox
     disp[0, :] = disp[0, :] / half_dx
     disp[1, :] = disp[1, :] / half_dy
     return disp
@@ -585,17 +584,17 @@ def load_dataset_detectron2(root="..", train=True, test=False):
                 # if abs(float(line[6]) - float(line[4])) < 8 or abs(float(line[7]) - float(line[5])) < 8:
                 #     continue
                 base_3Dto2D, corners_2D, _, _, depth, vertices = computeBox3D([float(x) for x in line[8:15]], P2_rect)
-                centered_vertices = vertices
+                centered_vertices = np.copy(vertices)
                 centered_vertices[0, :] = centered_vertices[0, :] - bbox_center_x
                 centered_vertices[1, :] = centered_vertices[1, :] - bbox_center_y
                 DISCARD = True
                 if DISCARD:
                     # print(base_3Dto2D < 0 or base_3Dto2D > 1222)
-                    if not (~(base_3Dto2D < 0)).all():
+                    if not (~(vertices < 0)).all():
                         # print("discard negative base")
                         # print(base_3Dto2D)
                         continue
-                    if not (~(base_3Dto2D > 1224)).all():
+                    if not (~(vertices > 1224)).all():
                         # print("discard negative base")
                         # print(base_3Dto2D)
                         continue

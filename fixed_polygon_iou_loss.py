@@ -2,6 +2,8 @@ import torch
 import numpy as np
 import cv2
 
+from matplotlib import pyplot as plt
+
 device = 'cuda'
 
 
@@ -226,8 +228,10 @@ def batch_poly_iou(polys1, polys2):
     y4 = xy4[:, :, :, 1]
 
     D = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
-    Nx = ((x1 * y2 - x2 * y1) * (x3 - x4) - (x3 * y4 - x4 * y3) * (x1 - x2)) / D
-    Ny = ((x1 * y2 - x2 * y1) * (y3 - y4) - (x3 * y4 - x4 * y3) * (y1 - y2)) / D
+
+    # resolve D=0 by adding a small delta
+    Nx = ((x1 * y2 - x2 * y1) * (x3 - x4) - (x3 * y4 - x4 * y3) * (x1 - x2)) / (D + 1e-10)
+    Ny = ((x1 * y2 - x2 * y1) * (y3 - y4) - (x3 * y4 - x4 * y3) * (y1 - y2)) / (D + 1e-10)
 
     # get points that intersect in valid range (Nx should be greater than exactly one of x1,x2 and exactly one of x3,x4)
     s1 = torch.sign(Nx - x1)
@@ -293,17 +297,25 @@ def batch_poly_iou(polys1, polys2):
 
     ai = batch_poly_area(polyi)
 
-    iou = ai / (a1 + a2 - ai + 1e-3)
+    iou = ai / (a1 + a2 - ai + 1e-10)
 
-    outlier = torch.logical_or(iou > 1, iou < 0)
+    outlier = torch.logical_or(torch.logical_or(iou > 1, iou < 0), torch.isnan(iou))
     if outlier.any():
-        print(polys1[outlier, :, :])
-        print(polys2[outlier, :, :])
-        print(polyi[outlier, :, :])
-        print(ai[outlier])
-        print(a1[outlier])
-        print(a2[outlier])
-        print(iou[outlier])
+        plt.scatter(polys1[outlier, ::][0, :, 0].cpu().detach().numpy(), polys1[outlier, ::][0, :, 1].cpu().detach().numpy(), color="r")
+        plt.scatter(polys2[outlier, ::][0, :, 0].cpu().detach().numpy(), polys2[outlier, ::][0, :, 1].cpu().detach().numpy(), color="b")
+        plt.show()
+        print(polys1[outlier, ::][0])
+        print(polys2[outlier, ::][0])
+        # print(polys1_np_keep[outlier, ::])
+        # print(polys2_np_keep[outlier, ::])
+        # print(intersections[outlier, ::])
+        # print(polys1[outlier, :, :])
+        # print(polys2[outlier, :, :])
+        # print(polyi[outlier, :, :])
+        # print(ai[outlier])
+        # print(a1[outlier])
+        # print(a2[outlier])
+        print(iou[outlier][0])
 
     return iou
 
@@ -322,7 +334,7 @@ def batch_poly_diou_loss(polys1, polys2, a=1):
 
     d_sqd = torch.sqrt(torch.sum(torch.square(poly_1_mid - poly_2_mid), dim=1))
 
-    return 1 - iou + a * d_sqd / (c_sqd + 1e-3)
+    return 1 - iou + a * d_sqd / (c_sqd + 1e-10)
 
 
 def c_poly_diou_loss(poly1, poly2):

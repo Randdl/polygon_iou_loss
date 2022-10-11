@@ -50,10 +50,11 @@ predictor = DefaultPredictor(cfg)
 
 checkpointer = DetectionCheckpointer(predictor.model, save_dir="model_param")
 # checkpointer.load("results/predict h/model_final.pth")
-checkpointer.load("output/model_final.pth")
+# checkpointer.load("output/model_final.pth")
+checkpointer.load("results/model_0079999.pth")
 
-im = cv2.imread("images/000001.png")
-# im = cv2.imread("testing/000007.png")
+# im = cv2.imread("images/000002.png")
+im = cv2.imread("testing/000007.png")
 # print(im.shape)
 # plt.figure(figsize=(15, 7.5))
 # plt.imshow(im[..., ::-1])
@@ -67,8 +68,7 @@ plt.figure(figsize=(20, 10))
 plt.imshow(out.get_image()[..., ::-1][..., ::-1])
 print(outputs["instances"])
 bases = outputs["instances"].pred_bases.to("cpu")
-h = outputs["instances"].pred_h.to("cpu")
-print(h)
+top = outputs["instances"].pred_top.to("cpu")
 boxes = outputs["instances"].pred_boxes.to("cpu").tensor
 # print(outputs["instances"])
 image_y, image_x = outputs["instances"]._image_size
@@ -76,21 +76,21 @@ scale_x = image_x / 1333
 scale_y = image_y / 402
 bases[:, ::2] = bases[:, ::2] * scale_x
 bases[:, 1::2] = bases[:, 1::2] * scale_y
+top[:, ::2] = top[:, ::2] * scale_x
+top[:, 1::2] = top[:, 1::2] * scale_y
 for idx in range(bases.shape[0]):
-    plt.scatter(x=bases[idx, 0], y=bases[idx, 1], s=40, color="r")
-    plt.scatter(x=bases[idx, 2], y=bases[idx, 3], s=40, color="r")
-    plt.scatter(x=bases[idx, 4], y=bases[idx, 5], s=40, color="r")
-    plt.scatter(x=bases[idx, 6], y=bases[idx, 7], s=40, color="r")
-    plt.scatter(x=bases[idx, 0], y=(bases[idx, 1] - h[idx]), s=40, color="r")
-    plt.scatter(x=bases[idx, 2], y=(bases[idx, 3] - h[idx]), s=40, color="r")
-    plt.scatter(x=bases[idx, 4], y=(bases[idx, 5] - h[idx]), s=40, color="r")
-    plt.scatter(x=bases[idx, 6], y=(bases[idx, 7] - h[idx]), s=40, color="r")
-    plt.scatter(x=bases[idx, 8], y=bases[idx, 9], s=40, color="g")
+    plt.scatter(x=bases[idx, 0], y=bases[idx, 1], s=20, color="r")
+    plt.scatter(x=bases[idx, 2], y=bases[idx, 3], s=20, color="r")
+    plt.scatter(x=bases[idx, 4], y=bases[idx, 5], s=20, color="r")
+    plt.scatter(x=bases[idx, 6], y=bases[idx, 7], s=20, color="r")
+    plt.scatter(x=top[idx, 0], y=top[idx, 1], s=20, color="b")
+    plt.scatter(x=top[idx, 2], y=top[idx, 3], s=20, color="b")
+    plt.scatter(x=top[idx, 4], y=top[idx, 5], s=20, color="b")
+    plt.scatter(x=top[idx, 6], y=top[idx, 7], s=20, color="b")
+
     xs = bases[idx, [0, 2, 6, 4, 0]]
     ys = bases[idx, [1, 3, 7, 5, 1]]
-    tys = bases[idx, [1, 3, 7, 5, 1]] - h[idx]
-    plt.plot(xs, ys, color='deepskyblue', linewidth=3)
-    plt.plot(xs, tys, color='deepskyblue', linewidth=3)
+    # plt.plot(xs, ys, color='deepskyblue', linewidth=3)
     # plt.scatter(x=boxes[idx, 0], y=boxes[idx, 1], s=40, color="y")
     # plt.scatter(x=boxes[idx, 2], y=boxes[idx, 3], s=40, color="y")
     # break

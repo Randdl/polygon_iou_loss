@@ -119,6 +119,10 @@ def transform_instance_annotations(
     ver_disp = ver_disp.flatten()
     annotation["ver_disp"] = ver_disp
 
+    vertices = np.transpose(annotation["vertices"])
+    vertices = vertices.flatten()
+    annotation["vertices"] = vertices
+
     annotation["bbox"] = np.minimum(bbox, list(image_size + image_size)[::-1])
     annotation["bbox_mode"] = BoxMode.XYXY_ABS
 
@@ -153,6 +157,15 @@ def annotations_to_instances(annos, image_size, mask_format="polygon"):
         # the inputs (and consequently confuses jit)
         bases = bases.reshape((0, 4)).to(dtype=torch.float32, device=device)
     target.gt_bases = bases
+
+    vertices = [obj["vertices"] for obj in annos]
+    device = vertices.device if isinstance(vertices, torch.Tensor) else torch.device("cpu")
+    vertices = torch.as_tensor(vertices, dtype=torch.float32, device=device)
+    if vertices.numel() == 0:
+        # Use reshape, so we don't end up creating a new tensor that does not depend on
+        # the inputs (and consequently confuses jit)
+        vertices = vertices.reshape((0, 8)).to(dtype=torch.float32, device=device)
+    target.gt_vertices = vertices
 
     centered_vertices = [obj["centered_vertices"] for obj in annos]
     device = centered_vertices.device if isinstance(centered_vertices, torch.Tensor) else torch.device("cpu")

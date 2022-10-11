@@ -105,14 +105,69 @@ def disp_to_polys(dis, boxes):
     y2 = boxes[::, 3]
     half_dx = (x2 - x1) / 2
     half_dy = (y2 - y1) / 2
-    poly = torch.stack((-half_dx, half_dy, half_dx, half_dy, half_dx, -half_dy, -half_dx, -half_dy), dim=-1)
+    poly = torch.stack((-half_dx, -half_dy, -half_dx, half_dy, half_dx, half_dy, half_dx, -half_dy), dim=-1)
 
-    dis[::, [0, 2, 4, 6, 8, 10, 12, 14]] = torch.mul(dis[::, [0, 2, 4, 6, 8, 10, 12, 14]], half_dx[:, None])
-    dis[::, [1, 3, 5, 7, 9, 11, 13, 15]] = torch.mul(dis[::, [1, 3, 5, 7, 9, 11, 13, 15]], half_dy[:, None])
+    polys = dis.clone()
 
-    poly1 = dis[::, 0:8] + poly
-    poly2 = dis[::, 8:16] + poly
-    return poly1, poly2
+    polys[::, [0, 2, 4, 6, 8, 10, 12, 14]] = torch.mul(polys[::, [0, 2, 4, 6, 8, 10, 12, 14]], half_dx[:, None])
+    polys[::, [1, 3, 5, 7, 9, 11, 13, 15]] = torch.mul(polys[::, [1, 3, 5, 7, 9, 11, 13, 15]], half_dy[:, None])
+
+    polys[::, 0:8] = polys[::, 0:8] + poly
+    polys[::, 8:16] = polys[::, 8:16] + poly
+    return polys
+
+
+def disp_to_real_polys(dis, boxes):
+    x1 = boxes[::, 0]
+    y1 = boxes[::, 1]
+    x2 = boxes[::, 2]
+    y2 = boxes[::, 3]
+    half_dx = (x2 - x1) / 2
+    half_dy = (y2 - y1) / 2
+    real_poly = torch.stack((x1, y1, x1, y2, x2, y2, x2, y1, x1, y1, x1, y2, x2, y2, x2, y1), dim=-1)
+
+    poly = dis.clone()
+
+    poly[::, [0, 2, 4, 6, 8, 10, 12, 14]] = torch.mul(poly[::, [0, 2, 4, 6, 8, 10, 12, 14]], half_dx[:, None])
+    poly[::, [1, 3, 5, 7, 9, 11, 13, 15]] = torch.mul(poly[::, [1, 3, 5, 7, 9, 11, 13, 15]], half_dy[:, None])
+
+    poly = poly + real_poly
+
+    return poly
+
+
+def polys_to_disp(polys, boxes):
+    x1 = boxes[::, 0]
+    y1 = boxes[::, 1]
+    x2 = boxes[::, 2]
+    y2 = boxes[::, 3]
+    half_dx = (x2 - x1) / 2
+    half_dy = (y2 - y1) / 2
+
+    corners = torch.stack((x1, y1, x1, y2, x2, y2, x2, y1, x1, y1, x1, y2, x2, y2, x2, y1), dim=-1)
+
+    disp = polys - corners
+
+    disp[::, [0, 2, 4, 6, 8, 10, 12, 14]] = torch.div(disp[::, [0, 2, 4, 6, 8, 10, 12, 14]], half_dx[:, None])
+    disp[::, [1, 3, 5, 7, 9, 11, 13, 15]] = torch.div(disp[::, [1, 3, 5, 7, 9, 11, 13, 15]], half_dy[:, None])
+
+    return disp
+
+
+def polys_to_centered_polys(polys, boxes):
+    x1 = boxes[::, 0]
+    y1 = boxes[::, 1]
+    x2 = boxes[::, 2]
+    y2 = boxes[::, 3]
+    mid_x = (x2 + x1) / 2
+    mid_y = (y2 + y1) / 2
+
+    centered = polys.clone()
+
+    centered[::, [0, 2, 4, 6, 8, 10, 12, 14]] = centered[::, [0, 2, 4, 6, 8, 10, 12, 14]] - mid_x[:, None]
+    centered[::, [1, 3, 5, 7, 9, 11, 13, 15]] = centered[::, [1, 3, 5, 7, 9, 11, 13, 15]] - mid_y[:, None]
+
+    return centered
 
 
 def delta_to_bases(bases, boxes):
@@ -282,20 +337,19 @@ def fast_rcnn_inference_single_image(
     if topk_per_image >= 0:
         keep = keep[:topk_per_image]
     boxes, bases, scores, depth, filter_inds = boxes[keep], bases[keep], scores[keep], depth[keep], filter_inds[keep]
+    # bases_bottom = bases[:, 0:8]
+    # bases_bottom = delta_to_bases(bases_bottom, boxes)
+    # bases_top = bases[:, 8:16]
+    # bases_top = delta_to_bases(bases_top, boxes)
 
-    h = bases[:, 6]
-    bases_bottom = bases[:, 0:8]
-    bases_bottom = delta_to_bases(bases_bottom, boxes)
-    bases_top = bases[:, 8:16]
-    bases_top = delta_to_bases(bases_top, boxes)
-    h = delta_to_h(h, boxes)
-    # print(mid.shape)
-    # print(mid)
+    print(bases)
+    print(depth)
+
+    bases_bottom, bases_top = disp_to_real_polys(bases, boxes)
 
     result = Instances(image_shape)
     result.pred_bases = bases_bottom
     result.pred_top = bases_top
-    result.pred_h = h
     result.pred_boxes = Boxes(boxes)
     result.scores = scores
     result.pred_depth = depth
@@ -373,6 +427,8 @@ class FastRCNNOutputs:
                 self.gt_depth = cat([p.gt_depth for p in proposals], dim=0)
                 assert proposals[0].has("gt_bases")
                 self.gt_bases = cat([p.gt_bases for p in proposals], dim=0)
+                assert proposals[0].has("gt_vertices")
+                self.gt_vertices = cat([p.gt_vertices for p in proposals], dim=0)
                 assert proposals[0].has("gt_centered_vertices")
                 self.gt_centered_vertices = cat([p.gt_centered_vertices for p in proposals], dim=0)
                 assert proposals[0].has("gt_ver_disp")
@@ -562,21 +618,29 @@ class FastRCNNOutputs:
         if USE_VERTICES:
             if IOU:
                 boxes = self.gt_boxes.tensor[fg_inds]
-                poly1, poly2 = disp_to_polys(pred_bases_transformed, boxes)
-                centered_vertices = self.gt_centered_vertices[fg_inds]
-                ver_disp = self.gt_ver_disp[fg_inds]
-                loss_base_reg = batch_poly_diou_loss(poly1.view(-1, 4, 2), centered_vertices[:, 0:8].view(-1, 4, 2),
-                                                     a=0).sum() \
-                                + batch_poly_diou_loss(poly2.view(-1, 4, 2), centered_vertices[:, 8:16].view(-1, 4, 2),
-                                                       a=0).sum()
-                loss_base_reg = loss_base_reg / 8
+                vertices = self.gt_vertices[fg_inds]
 
+                polys = disp_to_polys(pred_bases_transformed, boxes)
+                centered_vertices = polys_to_centered_polys(vertices, boxes)
+
+                ver_disp = polys_to_disp(vertices, boxes)
+                # print(vertices[0])
+                # print(disp_to_real_polys(ver_disp, boxes)[0])
+
+                loss_base_reg = batch_poly_diou_loss(polys[:, 0:8].view(-1, 4, 2), centered_vertices[:, 0:8].view(-1, 4, 2),
+                                                     a=0).sum() \
+                                + batch_poly_diou_loss(polys[:, 8:16].view(-1, 4, 2), centered_vertices[:, 8:16].view(-1, 4, 2),
+                                                       a=0).sum()
+                loss_base_reg = loss_base_reg / 2
+
+                # print(pred_bases_transformed[0])
+                # print(ver_disp[0])
                 loss_base_reg += smooth_l1_loss(
                     pred_bases_transformed,
                     ver_disp,
                     self.smooth_l1_beta,
                     reduction="sum",
-                ) / 16
+                )
 
                 return loss_base_reg / self.gt_classes.numel()
 
@@ -587,7 +651,6 @@ class FastRCNNOutputs:
 
         pred_bases_bottom = delta_to_bases(pred_bases_transformed[:, 0:8], pred_boxes_fg)[:, 0:8]
         pred_bases_top = delta_to_bases(pred_bases_transformed[:, 8:16], pred_boxes_fg)[:, 0:8]
-
 
         if not IOU:
             loss_base_reg = smooth_l1_loss(
@@ -744,8 +807,8 @@ class NewFastRCNNOutputLayers(nn.Module):
 
         nn.init.normal_(self.cls_score.weight, std=0.01)
         nn.init.normal_(self.bbox_pred.weight, std=0.001)
-        # nn.init.normal_(self.base_pred.weight, mean=0.6, std=0.6)
-        nn.init.zeros_(self.base_pred.weight)
+        nn.init.normal_(self.base_pred.weight, std=0.001)
+        # nn.init.zeros_(self.base_pred.weight)
         nn.init.normal_(self.depth_pred.weight, std=0.003)
         # print(self.base_pred.weight.shape)
         # for idx in range(num_bbox_reg_classes):
@@ -758,7 +821,7 @@ class NewFastRCNNOutputLayers(nn.Module):
         # self.base_pred.weight[:, idx * 6 + 2:idx * 6 + 4] = 0.6
         # self.base_pred.weight[:, idx * 6 + 4] = 0.6
         # self.base_pred.weight[:, idx * 6 + 5] = 0.6
-        for l in [self.cls_score, self.bbox_pred]:
+        for l in [self.cls_score, self.bbox_pred, self.base_pred]:
             nn.init.constant_(l.bias, 0)
 
         self.box2box_transform = box2box_transform
@@ -823,7 +886,7 @@ class NewFastRCNNOutputLayers(nn.Module):
         return (scores, proposal_deltas), proposal_bases, proposal_depth
 
     # TODO: move the implementation to this class.
-    def losses(self, predictions, proposals):
+    def losses(self, predictionsr, proposals):
         """
         Args:
             predictions: return values of :meth:`forward()`.
@@ -836,7 +899,7 @@ class NewFastRCNNOutputLayers(nn.Module):
         """
         # for param in self.parameters():
         #     print(param)
-        predictions, pred_bases, pred_depth = predictions
+        predictions, pred_bases, pred_depth = predictionsr
         scores, proposal_deltas = predictions
         # print(pred_bases)
         # print(proposal_deltas)
