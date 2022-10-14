@@ -176,7 +176,7 @@ def computeBox3D(label, P):
     corners_2D = corners_2D[:2]
     # print(corners_2D)
 
-    ver_coor = corners_2D[:, [1, 2, 3, 0, 4, 7, 6, 5]]
+    ver_coor = corners_2D[:, [4, 3, 2, 1, 5, 6, 7, 0]]
 
     base_indices = [2, 3, 6, 7]
     base_3Dto2D = corners_2D[:, base_indices]
@@ -400,7 +400,7 @@ class Kitti(VisionDataset):
                         "3dbox": corners_2D,
                         "calib": P2_rect,
                         "origin3d": [float(x) for x in line[8:15]],
-                        "ver": corners_2D,
+                        "ver": vertices,
                         # "dimensions": [float(x) for x in line[8:11]],
                         # "location": [float(x) for x in line[11:14]],
                         # "rotation_y": float(line[14]),
@@ -472,10 +472,14 @@ class Kitti(VisionDataset):
             # plt.scatter(x=base[0, 3], y=base[1, 3], s=20, color="g")
             # plt.scatter(x=bbox[0], y=bbox[1], s=20, color="b")
             # plt.scatter(x=bbox[2], y=bbox[3], s=20, color="b")
-            plt.scatter(x=vertices[0, 3], y=vertices[1, 3], s=10, color="b")
-            plt.scatter(x=vertices[0, 7], y=vertices[1, 7], s=10, color="r")
-            plt.scatter(x=vertices[0, 4], y=vertices[1, 4], s=10, color="y")
-            plt.scatter(x=vertices[0, 5], y=vertices[1, 5], s=10, color="g")
+            plt.scatter(x=vertices[0, 0], y=vertices[1, 0], s=10, color="b")
+            plt.scatter(x=vertices[0, 1], y=vertices[1, 1], s=10, color="r")
+            plt.scatter(x=vertices[0, 2], y=vertices[1, 2], s=10, color="y")
+            plt.scatter(x=vertices[0, 3], y=vertices[1, 3], s=10, color="g")
+            plt.scatter(x=vertices[0, 4], y=vertices[1, 4], s=10, color="b")
+            plt.scatter(x=vertices[0, 5], y=vertices[1, 5], s=10, color="r")
+            plt.scatter(x=vertices[0, 6], y=vertices[1, 6], s=10, color="y")
+            plt.scatter(x=vertices[0, 7], y=vertices[1, 7], s=10, color="g")
         plt.imshow(sample['image'])
         plt.show()
 
@@ -581,13 +585,17 @@ def load_dataset_detectron2(root="..", train=True, test=False):
                     print("discard x out of bound")
                     print([float(x) for x in line[4:8]])
                     continue
+                if float(line[4]) < 0 or float(line[5]) < 0 or float(line[6]) < 0 or float(line[7]) < 0:
+                    print("discard negative x, y")
+                    print([float(x) for x in line[4:8]])
+                    continue
                 # if abs(float(line[6]) - float(line[4])) < 8 or abs(float(line[7]) - float(line[5])) < 8:
                 #     continue
                 base_3Dto2D, corners_2D, _, _, depth, vertices = computeBox3D([float(x) for x in line[8:15]], P2_rect)
                 centered_vertices = np.copy(vertices)
                 centered_vertices[0, :] = centered_vertices[0, :] - bbox_center_x
                 centered_vertices[1, :] = centered_vertices[1, :] - bbox_center_y
-                DISCARD = True
+                DISCARD = False
                 if DISCARD:
                     # print(base_3Dto2D < 0 or base_3Dto2D > 1222)
                     if not (~(vertices < 0)).all():

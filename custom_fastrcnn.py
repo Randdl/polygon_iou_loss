@@ -345,7 +345,8 @@ def fast_rcnn_inference_single_image(
     print(bases)
     print(depth)
 
-    bases_bottom, bases_top = disp_to_real_polys(bases, boxes)
+    result_bases = disp_to_real_polys(bases, boxes)
+    bases_bottom, bases_top = result_bases[:, 0:8], result_bases[:, 8:16]
 
     result = Instances(image_shape)
     result.pred_bases = bases_bottom
