@@ -342,8 +342,8 @@ def fast_rcnn_inference_single_image(
     # bases_top = bases[:, 8:16]
     # bases_top = delta_to_bases(bases_top, boxes)
 
-    print(bases)
-    print(depth)
+    # print(bases)
+    # print(depth)
 
     result_bases = disp_to_real_polys(bases, boxes)
     bases_bottom, bases_top = result_bases[:, 0:8], result_bases[:, 8:16]
@@ -355,6 +355,7 @@ def fast_rcnn_inference_single_image(
     result.scores = scores
     result.pred_depth = depth
     result.pred_classes = filter_inds[:, 1]
+    result.pred_vertices = result_bases
     # print(image_shape)
     # print(result)
     return result, filter_inds[:, 0]
@@ -625,8 +626,8 @@ class FastRCNNOutputs:
                 centered_vertices = polys_to_centered_polys(vertices, boxes)
 
                 ver_disp = polys_to_disp(vertices, boxes)
-                # print(vertices[0])
-                # print(disp_to_real_polys(ver_disp, boxes)[0])
+                # print(polys[0])
+                # print(centered_vertices[0])
 
                 loss_base_reg = batch_poly_diou_loss(polys[:, 0:8].view(-1, 4, 2), centered_vertices[:, 0:8].view(-1, 4, 2),
                                                      a=0).sum() \
@@ -637,6 +638,21 @@ class FastRCNNOutputs:
                 # print(pred_bases_transformed[0])
                 # print(ver_disp[0])
                 loss_base_reg += smooth_l1_loss(
+                    pred_bases_transformed,
+                    ver_disp,
+                    self.smooth_l1_beta,
+                    reduction="sum",
+                )
+
+                return loss_base_reg / self.gt_classes.numel()
+
+            else:
+                boxes = self.gt_boxes.tensor[fg_inds]
+                vertices = self.gt_vertices[fg_inds]
+
+                ver_disp = polys_to_disp(vertices, boxes)
+
+                loss_base_reg = smooth_l1_loss(
                     pred_bases_transformed,
                     ver_disp,
                     self.smooth_l1_beta,

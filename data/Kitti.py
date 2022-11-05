@@ -100,8 +100,8 @@ def np_computeBox3D(label, P):
     corners_2D = corners_2D / corners_2D[2]
 
     corners_2D = corners_2D[:2]
-    # print(base_3Dto2D)
-    return corners_2D, corners_3D
+    ver_coor = corners_2D[:, [4, 3, 2, 1, 5, 6, 7, 0]]
+    return corners_2D, corners_3D, ver_coor
 
 
 def computeBox3D(label, P):
@@ -539,8 +539,8 @@ def load_dataset_detectron2(root="..", train=True, test=False):
         index_numbers = range(len(images) - 1000)
     else:
         index_numbers = range(len(images) - 1000, len(images))
-    for idx in index_numbers:
-        if idx == 200 and test:
+    for i, idx in enumerate(index_numbers):
+        if i == 200 and test:
             break
         if idx % 100 == 0:
             print("{} loaded".format(idx))
@@ -589,6 +589,10 @@ def load_dataset_detectron2(root="..", train=True, test=False):
                     print("discard negative x, y")
                     print([float(x) for x in line[4:8]])
                     continue
+                # if float(line[4]) > 1222 or float(line[5]) > 500 or float(line[6]) > 1222 or float(line[7]) > 500:
+                #     print("discard negative x, y")
+                #     print([float(x) for x in line[4:8]])
+                #     continue
                 # if abs(float(line[6]) - float(line[4])) < 8 or abs(float(line[7]) - float(line[5])) < 8:
                 #     continue
                 base_3Dto2D, corners_2D, _, _, depth, vertices = computeBox3D([float(x) for x in line[8:15]], P2_rect)
@@ -626,6 +630,7 @@ def load_dataset_detectron2(root="..", train=True, test=False):
                     "ver_disp": ver_disp,
                     "h": corners_2D[1, 2] - corners_2D[1, 0],
                     "depth": depth,
+                    'P2': P2_rect,
                 }
                 if float(line[4]) < 1:
                     obj["bbox"][0] = 1
