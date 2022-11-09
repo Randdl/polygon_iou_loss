@@ -2,6 +2,8 @@ import torch
 from detectron2.data.transforms import ResizeTransform
 from detectron2.structures import BoxMode, Instances, Boxes
 from matplotlib import pyplot as plt
+from matplotlib import pyplot as plt
+import plotly.graph_objects as go
 
 TORCH_VERSION = ".".join(torch.__version__.split(".")[:2])
 CUDA_VERSION = torch.__version__.split("+")[-1]
@@ -42,7 +44,7 @@ import json
 from scipy.optimize import least_squares
 
 DatasetCatalog.register("Kitti_train", lambda: load_dataset_detectron2())
-data_loader = load_dataset_detectron2(train=True, test=True)
+data_loader = load_dataset_detectron2(train=False, test=False)
 # data_loader = iter(data_loader)
 # print(next(data_loader))
 
@@ -59,7 +61,7 @@ checkpointer = DetectionCheckpointer(predictor.model, save_dir="model_param")
 # checkpointer.load("output/model_final.pth")
 # checkpointer.load("results/model_final.pth")
 checkpointer.load("results/final 2/model_final.pth")
-x0 = np.array([3, 2, 20, 30, 5, 80, 2])
+x0 = np.array([3, 1.5, 10, 0, 3, 40, 0])
 bounds = np.array([0.76, 0.3, 0.2, -44, -2, -4, -3.14]), np.array([4.2, 3, 35, 40, 6, 147, 3.14])
 
 
@@ -69,13 +71,19 @@ def diff_fun(input, real_corners, P, pred_depth):
 	depth = np.sqrt(np.sum(np.square(mid_point)))
 	vertices = np.transpose(vertices)
 	vertices = vertices.flatten()
+	# print(real_corners)
+	# print(vertices)
 	diff = real_corners.numpy() - vertices
-	return np.append(diff.flatten(), (depth - pred_depth.numpy()) * 4).sum()
+	return np.append(diff.flatten(), (depth - pred_depth.numpy()) * 4)
 
 
+# iters = 0
 for d in data_loader:
+	# if iters >= 1:
+	# 	break
+	# iters += 1
 	im = cv2.imread(d["file_name"])
-	output_file_name = d["file_name"].replace('..\\Kitti\\raw\\training\\image_2', 'results\\predictions')
+	output_file_name = d["file_name"].replace('..\\Kitti\\raw\\training\\image_2', 'results\\l1predictions')
 	output_file_name = output_file_name.replace('.png', '.txt')
 	print(output_file_name)
 	outputs = predictor(im[..., ::-1])
@@ -95,8 +103,9 @@ for d in data_loader:
 
 	annotations = d["annotations"]
 	P2 = annotations[0]['P2']
+	corners_3D = annotations[0]['corners_3D']
 	# for x in annotations:
-		# print(x['depth'])
+	# 	print(x['depth'])
 
 	classes_dic = ['Car', 'Pedestrian', 'Cyclist']
 
@@ -110,6 +119,14 @@ for d in data_loader:
 		new_diff_fun = lambda a: diff_fun(a, single_vertices, P2, single_depth)
 		res_1 = least_squares(new_diff_fun, x0, bounds=bounds)
 		value_3d = res_1.x
+		# print(single_vertices)
+		# _, c2, new_vertices = np_computeBox3D(value_3d, P2)
+		# print(new_vertices)
+		# plt.scatter(x=single_vertices.reshape(8, 2)[:, 0], y=single_vertices.reshape(8, 2)[:, 1], s=20, color="r")
+		# plt.scatter(x=new_vertices[0, :], y=new_vertices[1, :], s=20, color="b")
+		# plt.show()
+
+		# c1 = corners_3D
 		output_list = [classes_dic[single_class], 0.00, 0, 0.00]
 		output_list += single_box.tolist()
 		output_list += value_3d.tolist()
@@ -118,17 +135,31 @@ for d in data_loader:
 		output_list = ' '.join([str(x) for x in output_list])
 		output_list += '\n'
 		output.append(output_list)
+		# z = [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1]
+		# fig = go.Figure(data=[go.Scatter3d(
+		# 	x=np.concatenate([c1[0], c2[0]]),
+		# 	y=np.concatenate([c1[1], c2[1]]),
+		# 	z=np.concatenate([c1[2], c2[2]]),
+		# 	mode='markers',
+		# 	marker=dict(
+		# 		size=12,
+		# 		color=z,  # set color to an array/list of desired values
+		# 		colorscale='Viridis',  # choose a colorscale
+		# 		opacity=0.8
+		# 	)
+		# )])
+		# fig.update_layout(margin=dict(l=0, r=0, b=0, t=0))
+		# fig.show()
 
 	with open(output_file_name, 'w') as fp:
 		fp.writelines(output)
 
-	# gt_vertices = annotations[i]['vertices']
-	# gt_vertices = np.transpose(gt_vertices)
-	# gt_vertices = gt_vertices.flatten()
+# gt_vertices = annotations[i]['vertices']
+# gt_vertices = np.transpose(gt_vertices)
+# gt_vertices = gt_vertices.flatten()
 
-
-	# v = Visualizer(im[:, :, ::-1], MetadataCatalog.get("Kitti_train"), scale=1)
-	# out = v.draw_instance_predictions(outputs["instances"].to("cpu"))
-	# plt.figure(figsize=(20, 10))
-	# plt.imshow(out.get_image()[..., ::-1][..., ::-1])
-	# plt.show()
+# v = Visualizer(im[:, :, ::-1], MetadataCatalog.get("Kitti_train"), scale=1)
+# out = v.draw_instance_predictions(outputs["instances"].to("cpu"))
+# plt.figure(figsize=(20, 10))
+# plt.imshow(out.get_image()[..., ::-1][..., ::-1])
+# plt.show()

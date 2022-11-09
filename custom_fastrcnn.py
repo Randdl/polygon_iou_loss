@@ -614,7 +614,7 @@ class FastRCNNOutputs:
         pred_boxes = self.box2box_transform.apply_deltas(self.pred_proposal_deltas[:, gt_class_cols_boxes],
                                                          self.proposals.tensor)
         pred_bases_transformed = self.pred_bases[fg_inds[:, None], gt_class_cols]
-        IOU = True
+        IOU = False
         USE_VERTICES = True
 
         if USE_VERTICES:
@@ -658,6 +658,9 @@ class FastRCNNOutputs:
                     self.smooth_l1_beta,
                     reduction="sum",
                 )
+                if loss_base_reg > 50000 or loss_base_reg < 0:
+                    print(pred_bases_transformed)
+                    print(ver_disp)
 
                 return loss_base_reg / self.gt_classes.numel()
 

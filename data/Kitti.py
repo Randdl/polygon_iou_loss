@@ -595,7 +595,7 @@ def load_dataset_detectron2(root="..", train=True, test=False):
                 #     continue
                 # if abs(float(line[6]) - float(line[4])) < 8 or abs(float(line[7]) - float(line[5])) < 8:
                 #     continue
-                base_3Dto2D, corners_2D, _, _, depth, vertices = computeBox3D([float(x) for x in line[8:15]], P2_rect)
+                base_3Dto2D, corners_2D, corners_3D, _, depth, vertices = computeBox3D([float(x) for x in line[8:15]], P2_rect)
                 centered_vertices = np.copy(vertices)
                 centered_vertices[0, :] = centered_vertices[0, :] - bbox_center_x
                 centered_vertices[1, :] = centered_vertices[1, :] - bbox_center_y
@@ -625,6 +625,7 @@ def load_dataset_detectron2(root="..", train=True, test=False):
                     "bbox_mode": BoxMode.XYXY_ABS,
                     "category_id": category_id,
                     "base": base_3Dto2D,
+                    "corners_3D": corners_3D,
                     "vertices": vertices,
                     "centered_vertices": centered_vertices,
                     "ver_disp": ver_disp,
