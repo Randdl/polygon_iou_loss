@@ -2,7 +2,6 @@ import torch
 from detectron2.data.transforms import ResizeTransform
 from detectron2.structures import BoxMode, Instances, Boxes
 from matplotlib import pyplot as plt
-from matplotlib import pyplot as plt
 import plotly.graph_objects as go
 
 TORCH_VERSION = ".".join(torch.__version__.split(".")[:2])
@@ -60,7 +59,10 @@ checkpointer = DetectionCheckpointer(predictor.model, save_dir="model_param")
 # checkpointer.load("results/predict h/model_final.pth")
 # checkpointer.load("output/model_final.pth")
 # checkpointer.load("results/model_final.pth")
-checkpointer.load("results/final 2/model_final.pth")
+# checkpointer.load("results/final 2/model_final.pth")
+# checkpointer.load("results/final with l1/model_final.pth")
+checkpointer.load("results/big final with iou/model_0049999.pth")
+
 x0 = np.array([3, 1.5, 10, 0, 3, 40, 0])
 bounds = np.array([0.76, 0.3, 0.2, -44, -2, -4, -3.14]), np.array([4.2, 3, 35, 40, 6, 147, 3.14])
 
@@ -83,7 +85,7 @@ for d in data_loader:
 	# 	break
 	# iters += 1
 	im = cv2.imread(d["file_name"])
-	output_file_name = d["file_name"].replace('..\\Kitti\\raw\\training\\image_2', 'results\\l1predictions')
+	output_file_name = d["file_name"].replace('..\\Kitti\\raw\\training\\image_2', 'results\\ioupredictions49999')
 	output_file_name = output_file_name.replace('.png', '.txt')
 	print(output_file_name)
 	outputs = predictor(im[..., ::-1])

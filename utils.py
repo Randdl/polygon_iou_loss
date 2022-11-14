@@ -176,6 +176,15 @@ def annotations_to_instances(annos, image_size, mask_format="polygon"):
         centered_vertices = centered_vertices.reshape((0, 8)).to(dtype=torch.float32, device=device)
     target.gt_centered_vertices = centered_vertices
 
+    bbox_3d = [obj["bbox3d"] for obj in annos]
+    device = bbox_3d.device if isinstance(bbox_3d, torch.Tensor) else torch.device("cpu")
+    bbox_3d = torch.as_tensor(bbox_3d, dtype=torch.float32, device=device)
+    if bbox_3d.numel() == 0:
+        # Use reshape, so we don't end up creating a new tensor that does not depend on
+        # the inputs (and consequently confuses jit)
+        bbox_3d = bbox_3d.reshape((0, 8)).to(dtype=torch.float32, device=device)
+    target.gt_bbox3d = bbox_3d
+
     ver_disp = [obj["ver_disp"] for obj in annos]
     device = ver_disp.device if isinstance(ver_disp, torch.Tensor) else torch.device("cpu")
     ver_disp = torch.as_tensor(ver_disp, dtype=torch.float32, device=device)

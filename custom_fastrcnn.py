@@ -50,6 +50,7 @@ def fast_rcnn_inference(
         bases: List[torch.Tensor],
         scores: List[torch.Tensor],
         depth: List[torch.Tensor],
+        bbox3d: List[torch.Tensor],
         image_shapes: List[Tuple[int, int]],
         score_thresh: float,
         nms_thresh: float,
@@ -373,6 +374,7 @@ class FastRCNNOutputs:
             pred_class_logits,
             pred_proposal_deltas,
             pred_depth,
+            pred_bbox3d,
             proposals,
             smooth_l1_beta=0.0,
             box_reg_loss_type="smooth_l1",
@@ -405,6 +407,7 @@ class FastRCNNOutputs:
         self.pred_class_logits = pred_class_logits
         self.pred_proposal_deltas, self.pred_bases = pred_proposal_deltas
         self.pred_depth = pred_depth
+        self.pred_bbox3d = pred_bbox3d
         self.smooth_l1_beta = smooth_l1_beta
         self.box_reg_loss_type = box_reg_loss_type
 
@@ -429,6 +432,8 @@ class FastRCNNOutputs:
                 self.gt_depth = cat([p.gt_depth for p in proposals], dim=0)
                 assert proposals[0].has("gt_bases")
                 self.gt_bases = cat([p.gt_bases for p in proposals], dim=0)
+                assert proposals[0].has("gt_bbox3d")
+                self.gt_bbox3d = cat([p.gt_bbox3d for p in proposals], dim=0)
                 assert proposals[0].has("gt_vertices")
                 self.gt_vertices = cat([p.gt_vertices for p in proposals], dim=0)
                 assert proposals[0].has("gt_centered_vertices")
@@ -658,9 +663,9 @@ class FastRCNNOutputs:
                     self.smooth_l1_beta,
                     reduction="sum",
                 )
-                if loss_base_reg > 50000 or loss_base_reg < 0:
-                    print(pred_bases_transformed)
-                    print(ver_disp)
+                # if loss_base_reg > 50000 or loss_base_reg < 0:
+                #     print(pred_bases_transformed)
+                #     print(ver_disp)
 
                 return loss_base_reg / self.gt_classes.numel()
 
@@ -720,6 +725,50 @@ class FastRCNNOutputs:
         # print(loss_base_reg)
         return loss_base_reg
 
+    def bbox3d_reg_loss(self):
+        """
+        Compute the smooth L1 loss for 3dbox regression.
+
+        Returns:
+            scalar Tensor
+        """
+        if self._no_instances:
+            return 0.0 * self.pred_bbox3d.sum()
+
+        # print(self.gt_bases.shape)
+        # box_dim = self.gt_bases.size(1)  # 4 or 5
+        box_dim = 7  # 4 or 5
+        device = self.pred_bbox3d.device
+
+        bg_class_ind = self.pred_class_logits.shape[1] - 1
+
+        # Box delta loss is only computed between the prediction for the gt class k
+        # (if 0 <= k < bg_class_ind) and the target; there is no loss defined on predictions
+        # for non-gt classes and background.
+        # Empty fg_inds produces a valid loss of zero as long as the size_average
+        # arg to smooth_l1_loss is False (otherwise it uses torch.mean internally
+        # and would produce a nan loss).
+        fg_inds = nonzero_tuple((self.gt_classes >= 0) & (self.gt_classes < bg_class_ind))[0]
+        fg_gt_classes = self.gt_classes[fg_inds]
+        # pred_proposal_deltas for class k are located in columns [b * k : b * k + b],
+        # where b is the dimension of box representation (4 or 5)
+        # Note that compared to Detectron1,
+        # we do not perform bounding box regression for background classes.
+        gt_class_cols = box_dim * fg_gt_classes[:, None] + torch.arange(box_dim, device=device)
+
+        pred_bbox3d_transformed = self.pred_bbox3d[fg_inds[:, None], gt_class_cols]
+
+        bbox3d = self.gt_bbox3d[fg_inds]
+
+        loss_bbox3d_reg = smooth_l1_loss(
+            pred_bbox3d_transformed,
+            bbox3d,
+            self.smooth_l1_beta,
+            reduction="sum",
+        )
+
+        return loss_bbox3d_reg / self.gt_classes.numel() / 14
+
     def _predict_boxes(self):
         """
         Returns:
@@ -743,7 +792,8 @@ class FastRCNNOutputs:
             A dict of losses (scalar tensors) containing keys "loss_cls" and "loss_box_reg".
         """
         return {"loss_cls": self.softmax_cross_entropy_loss(), "loss_box_reg": self.box_reg_loss(),
-                "loss_base_reg": self.base_reg_loss(), "loss_depth_reg": self.depth_reg_loss()}
+                "loss_base_reg": self.base_reg_loss(), "loss_depth_reg": self.depth_reg_loss(),
+                "loss_bbox3d_reg": self.bbox3d_reg_loss()}
 
     def predict_boxes(self):
         """
@@ -823,10 +873,12 @@ class NewFastRCNNOutputLayers(nn.Module):
         self.bbox_pred = Linear(input_size, num_bbox_reg_classes * box_dim)
         # modified
         self.base_pred = Linear(input_size, num_bbox_reg_classes * 16)
+        self.bbox3d_pred = Linear(input_size, num_bbox_reg_classes * 7)
         self.depth_pred = Linear(input_size, num_bbox_reg_classes)
 
         nn.init.normal_(self.cls_score.weight, std=0.01)
         nn.init.normal_(self.bbox_pred.weight, std=0.001)
+        nn.init.normal_(self.bbox3d_pred.weight, std=0.001)
         nn.init.normal_(self.base_pred.weight, std=0.001)
         # nn.init.zeros_(self.base_pred.weight)
         nn.init.normal_(self.depth_pred.weight, std=0.003)
@@ -841,7 +893,7 @@ class NewFastRCNNOutputLayers(nn.Module):
         # self.base_pred.weight[:, idx * 6 + 2:idx * 6 + 4] = 0.6
         # self.base_pred.weight[:, idx * 6 + 4] = 0.6
         # self.base_pred.weight[:, idx * 6 + 5] = 0.6
-        for l in [self.cls_score, self.bbox_pred, self.base_pred]:
+        for l in [self.cls_score, self.bbox_pred, self.base_pred, self.bbox3d_pred]:
             nn.init.constant_(l.bias, 0)
 
         self.box2box_transform = box2box_transform
@@ -852,7 +904,7 @@ class NewFastRCNNOutputLayers(nn.Module):
         self.box_reg_loss_type = box_reg_loss_type
         if isinstance(loss_weight, float):
             loss_weight = {"loss_cls": loss_weight, "loss_box_reg": loss_weight, "loss_base_reg": loss_weight,
-                           "loss_depth_reg": loss_weight}
+                           "loss_bbox3d_reg": loss_weight, "loss_depth_reg": loss_weight}
         self.loss_weight = loss_weight
         # modified
         # for param in self.parameters():
@@ -894,6 +946,7 @@ class NewFastRCNNOutputLayers(nn.Module):
         proposal_deltas = self.bbox_pred(x)
         proposal_bases = self.base_pred(x)
         proposal_depth = self.depth_pred(x)
+        proposal_bbox3d = self.bbox3d_pred(x)
 
         # proposal_bases = proposal_bases.view(-1, 9, 6)
         # mid = proposal_bases[:, :, 0:2]
@@ -903,7 +956,7 @@ class NewFastRCNNOutputLayers(nn.Module):
         # proposal_bases = proposal_bases.view(-1, 72)
         # print(proposal_bases[0,:,:])
         # print(proposal_bases.view(-1, 72).shape)
-        return (scores, proposal_deltas), proposal_bases, proposal_depth
+        return (scores, proposal_deltas), proposal_bases, proposal_depth, proposal_bbox3d
 
     # TODO: move the implementation to this class.
     def losses(self, predictionsr, proposals):
@@ -919,7 +972,7 @@ class NewFastRCNNOutputLayers(nn.Module):
         """
         # for param in self.parameters():
         #     print(param)
-        predictions, pred_bases, pred_depth = predictionsr
+        predictions, pred_bases, pred_depth, pred_bbox3d = predictionsr
         scores, proposal_deltas = predictions
         # print(pred_bases)
         # print(proposal_deltas)
@@ -929,6 +982,7 @@ class NewFastRCNNOutputLayers(nn.Module):
             # modified
             (proposal_deltas, pred_bases),
             pred_depth,
+            pred_bbox3d,
             proposals,
             self.smooth_l1_beta,
             self.box_reg_loss_type,
@@ -941,7 +995,7 @@ class NewFastRCNNOutputLayers(nn.Module):
         return losses
         # return {k: v * self.loss_weight.get(k, 1.0) for k, v in losses.items()}
 
-    def inference(self, predictions: Tuple[Tuple[torch.Tensor, torch.Tensor], torch.Tensor, torch.Tensor],
+    def inference(self, predictions: Tuple[Tuple[torch.Tensor, torch.Tensor], torch.Tensor, torch.Tensor, torch.Tensor],
                   proposals: List[Instances]):
         """
         Args:
@@ -953,7 +1007,7 @@ class NewFastRCNNOutputLayers(nn.Module):
             list[Instances]: same as `fast_rcnn_inference`.
             list[Tensor]: same as `fast_rcnn_inference`.
         """
-        predictions, pred_bases, pred_depth = predictions
+        predictions, pred_bases, pred_depth, pred_bbox3d = predictions
 
         # _, proposal_deltas = predictions
         # proposal_boxes = [p.proposal_boxes for p in proposals]
@@ -971,6 +1025,7 @@ class NewFastRCNNOutputLayers(nn.Module):
         bases = self.predict_bases(pred_bases, proposals)
         scores = self.predict_probs(predictions, proposals)
         depth = self.predict_depth(pred_depth, proposals)
+        bbox3d = self.bbox3d_pred(pred_bbox3d, proposals)
 
         image_shapes = [x.image_size for x in proposals]
         return fast_rcnn_inference(
@@ -978,6 +1033,7 @@ class NewFastRCNNOutputLayers(nn.Module):
             bases,
             scores,
             depth,
+            bbox3d,
             image_shapes,
             self.test_score_thresh,
             self.test_nms_thresh,
@@ -1055,6 +1111,13 @@ class NewFastRCNNOutputLayers(nn.Module):
         num_inst_per_image = [len(p) for p in proposals]
         # print("bases:", pred_bases.shape)
         return pred_bases.split(num_inst_per_image, dim=0)
+
+    def predict_bbox3d(
+            self, pred_bbox3d: torch.Tensor, proposals: List[Instances]
+    ):
+        num_inst_per_image = [len(p) for p in proposals]
+        # print("bases:", pred_bases.shape)
+        return pred_bbox3d.split(num_inst_per_image, dim=0)
 
     def predict_probs(
             self, predictions: Tuple[torch.Tensor, torch.Tensor], proposals: List[Instances]
