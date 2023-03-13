@@ -140,6 +140,11 @@ def c_poly_loss(poly1, poly2):
 
 
 def batch_poly_area(polys):
+	"""
+	Calculate the area of polygons.
+	:param polys: the corner points of polygons [B, N, 2]
+	:return: area of the polygon [B]
+	"""
 	x1 = polys[:, :, 0]
 	y1 = polys[:, :, 1]
 
@@ -153,6 +158,11 @@ def batch_poly_area(polys):
 
 
 def batch_clockify(polygons, clockwise=True):
+	"""
+	Turn the points of the polygons into clockwise order
+	:param polygons: the corner points of polygons [B, N, 2]
+	:return: [B, N, 2]
+	"""
 	center = torch.mean(polygons, dim=1)
 
 	diff = polygons - center.unsqueeze(1).expand(polygons.shape)
@@ -173,6 +183,14 @@ def batch_clockify(polygons, clockwise=True):
 
 
 def batch_torch_wn(pntss, polys, return_winding=False, sides=4):
+	"""
+	Return the points inside polygons
+	:param pntss: The set of points to check whether inside polygons [B, N, 2]
+	:param polys: [B, N, 2]
+	:param return_winding: whether return the winding value
+	:param sides: number of sides of the polygons
+	:return: [B, N', 2]
+	"""
 	device = polys.device
 	x0, y0 = torch.transpose(polys, 0, 2).transpose(-2, -1)  # polygon `from` coordinates
 	x1, y1 = torch.transpose(torch.roll(polys, -1, 1), 0, 2).transpose(-2, -1)  # polygon `to` coordinates
@@ -239,6 +257,13 @@ def batch_torch_wn_triangle(pntss, polys, return_winding=False):
 
 
 def batch_poly_iou(polys1, polys2, sides=4):
+	"""
+	Return the IoU between two polygons
+	:param polys1: [B, N, 2]
+	:param polys2: [B, N, 2]
+	:param sides: number of sides of the polygon, N
+	:return: [B]
+	"""
 	device = polys1.device
 	b = polys1.shape[0]
 
@@ -466,6 +491,14 @@ def batch_unconvex_poly_iou(polys1, polys2):
 
 
 def batch_poly_diou_loss(polys1, polys2, a=1, sides=4):
+	"""
+	Return the DIoU loss between two polygons
+	:param polys1: [B, N, 2]
+	:param polys2: [B, N, 2]
+	:param a: the weight of the distance part of DIoU loss
+	:param sides: number of sides of the polygon, N
+	:return: [B]
+	"""
 	iou = batch_poly_iou(polys1, polys2, sides=sides)
 	x_min = torch.min(torch.min(polys1[:, :, 0], dim=1)[0], torch.min(polys2[:, :, 0], dim=1)[0])
 	x_max = torch.max(torch.max(polys1[:, :, 0], dim=1)[0], torch.max(polys2[:, :, 0], dim=1)[0])
