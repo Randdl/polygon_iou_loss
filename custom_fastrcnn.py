@@ -83,11 +83,11 @@ def fast_rcnn_inference(
     """
     result_per_image = [
         fast_rcnn_inference_single_image(
-            boxes_per_image, scores_per_image, bases_per_image, depth_per_image, image_shape, score_thresh, nms_thresh,
+            boxes_per_image, scores_per_image, bases_per_image, depth_per_image, bbox3d_per_image, image_shape, score_thresh, nms_thresh,
             topk_per_image
         )
-        for scores_per_image, boxes_per_image, bases_per_image, depth_per_image, image_shape in
-        zip(scores, boxes, bases, depth, image_shapes)
+        for scores_per_image, boxes_per_image, bases_per_image, depth_per_image, bbox3d_per_image, image_shape in
+        zip(scores, boxes, bases, depth, bbox3d, image_shapes)
     ]
     return [x[0] for x in result_per_image], [x[1] for x in result_per_image]
 
@@ -281,6 +281,7 @@ def fast_rcnn_inference_single_image(
         scores,
         bases,
         depth,
+        bbox3d,
         image_shape: Tuple[int, int],
         score_thresh: float,
         nms_thresh: float,
@@ -303,6 +304,7 @@ def fast_rcnn_inference_single_image(
         scores = scores[valid_mask]
         bases = bases[valid_mask]
         depth = depth[valid_mask]
+        bbox3d = bbox3d[valid_mask]
 
     scores = scores[:, :-1]
     num_bbox_reg_classes = boxes.shape[1] // 4
@@ -317,6 +319,7 @@ def fast_rcnn_inference_single_image(
     # print(boxes.shape)
     bases = bases.view(-1, num_bbox_reg_classes, 16)
     # print(bases.shape)
+    bbox3d = bbox3d.view(-1, num_bbox_reg_classes, 7)
 
     # 1. Filter results based on detection scores. It can make NMS more efficient
     #    by filtering out low-confidence detections.
@@ -330,6 +333,7 @@ def fast_rcnn_inference_single_image(
     else:
         boxes = boxes[filter_mask]
     bases = bases[filter_mask]
+    bbox3d = bbox3d[filter_mask]
     scores = scores[filter_mask]
     depth = depth[filter_mask]
 
@@ -337,7 +341,7 @@ def fast_rcnn_inference_single_image(
     keep = batched_nms(boxes, scores, filter_inds[:, 1], nms_thresh)
     if topk_per_image >= 0:
         keep = keep[:topk_per_image]
-    boxes, bases, scores, depth, filter_inds = boxes[keep], bases[keep], scores[keep], depth[keep], filter_inds[keep]
+    boxes, bases, scores, depth, bbox3d, filter_inds = boxes[keep], bases[keep], scores[keep], depth[keep], bbox3d[keep], filter_inds[keep]
     # bases_bottom = bases[:, 0:8]
     # bases_bottom = delta_to_bases(bases_bottom, boxes)
     # bases_top = bases[:, 8:16]
@@ -355,6 +359,7 @@ def fast_rcnn_inference_single_image(
     result.pred_boxes = Boxes(boxes)
     result.scores = scores
     result.pred_depth = depth
+    result.pred_bbox3d = bbox3d
     result.pred_classes = filter_inds[:, 1]
     result.pred_vertices = result_bases
     # print(image_shape)
@@ -1025,7 +1030,7 @@ class NewFastRCNNOutputLayers(nn.Module):
         bases = self.predict_bases(pred_bases, proposals)
         scores = self.predict_probs(predictions, proposals)
         depth = self.predict_depth(pred_depth, proposals)
-        bbox3d = self.bbox3d_pred(pred_bbox3d, proposals)
+        bbox3d = self.predict_bbox3d(pred_bbox3d, proposals)
 
         image_shapes = [x.image_size for x in proposals]
         return fast_rcnn_inference(

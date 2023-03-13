@@ -61,13 +61,13 @@ checkpointer = DetectionCheckpointer(predictor.model, save_dir="model_param")
 # checkpointer.load("results/model_final.pth")
 # checkpointer.load("results/final 2/model_final.pth")
 # checkpointer.load("results/final with l1/model_final.pth")
-checkpointer.load("results/big final with iou/model_0049999.pth")
+checkpointer.load("results/final with iou/model_final.pth")
 
 x0 = np.array([3, 1.5, 10, 0, 3, 40, 0])
 bounds = np.array([0.76, 0.3, 0.2, -44, -2, -4, -3.14]), np.array([4.2, 3, 35, 40, 6, 147, 3.14])
 
 
-def diff_fun(input, real_corners, P, pred_depth):
+def diff_fun(input, real_corners, P, pred_depth, bbox3d):
 	_, corners_3D, vertices = np_computeBox3D(input, P)
 	mid_point = np.mean(corners_3D, axis=1)
 	depth = np.sqrt(np.sum(np.square(mid_point)))
@@ -76,6 +76,13 @@ def diff_fun(input, real_corners, P, pred_depth):
 	# print(real_corners)
 	# print(vertices)
 	diff = real_corners.numpy() - vertices
+	diff = diff.flatten() * 1e-2
+	pos_diff = input[3:6] - bbox3d[3:6]
+	pos_diff *= 1e-1
+	dim_diff = input[0:3] - bbox3d[0:3]
+	do_diff = input[5:] - bbox3d[5:]
+	do_diff[0] *= 1e-1
+	# return np.concatenate((diff, dim_diff, do_diff))
 	return np.append(diff.flatten(), (depth - pred_depth.numpy()) * 4)
 
 
@@ -85,7 +92,7 @@ for d in data_loader:
 	# 	break
 	# iters += 1
 	im = cv2.imread(d["file_name"])
-	output_file_name = d["file_name"].replace('..\\Kitti\\raw\\training\\image_2', 'results\\ioupredictions49999')
+	output_file_name = d["file_name"].replace('..\\Kitti\\raw\\training\\image_2', 'results\\ioupredictions')
 	output_file_name = output_file_name.replace('.png', '.txt')
 	print(output_file_name)
 	outputs = predictor(im[..., ::-1])
@@ -94,6 +101,8 @@ for d in data_loader:
 	classes = outputs['instances'].pred_classes.to('cpu')
 	scores = outputs['instances'].scores.to('cpu')
 	depth = outputs['instances'].pred_depth.to('cpu')
+	bbox3d = outputs['instances'].pred_bbox3d.to('cpu')
+	print(bbox3d)
 	# print(classes)
 	# print(depth)
 
@@ -118,8 +127,9 @@ for d in data_loader:
 		single_box = boxes[i, :]
 		single_score = scores[i]
 		single_depth = depth[i]
-		new_diff_fun = lambda a: diff_fun(a, single_vertices, P2, single_depth)
-		res_1 = least_squares(new_diff_fun, x0, bounds=bounds)
+		new_diff_fun = lambda a: diff_fun(a, single_vertices, P2, single_depth, bbox3d[i, :].numpy())
+		x0 = bbox3d[i, :].numpy()
+		res_1 = least_squares(new_diff_fun, x0)
 		value_3d = res_1.x
 		# print(single_vertices)
 		# _, c2, new_vertices = np_computeBox3D(value_3d, P2)

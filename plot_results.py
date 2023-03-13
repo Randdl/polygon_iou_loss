@@ -52,7 +52,9 @@ checkpointer = DetectionCheckpointer(predictor.model, save_dir="model_param")
 # checkpointer.load("results/predict h/model_final.pth")
 # checkpointer.load("output/model_final.pth")
 # checkpointer.load("results/model_final.pth")
-checkpointer.load("results/final 2/model_final.pth")
+# checkpointer.load("results/final 2/model_final.pth")
+checkpointer.load("results/big final with iou/model_final.pth")
+# checkpointer.load("results/big final with l1/model_final.pth")
 
 # im = cv2.imread("images/000002.png")
 im = cv2.imread("testing/000005.png")
@@ -91,6 +93,22 @@ for idx in range(bases.shape[0]):
 
     xs = bases[idx, [0, 2, 6, 4, 0]]
     ys = bases[idx, [1, 3, 7, 5, 1]]
+
+    lines = [(bases[idx, 0], bases[idx, 2]), (bases[idx, 1], bases[idx, 3]), 'r',
+             (bases[idx, 2], bases[idx, 4]), (bases[idx, 3], bases[idx, 5]), 'r',
+             (bases[idx, 4], bases[idx, 6]), (bases[idx, 5], bases[idx, 7]), 'r',
+             (bases[idx, 6], bases[idx, 0]), (bases[idx, 7], bases[idx, 1]), 'r',
+             (top[idx, 0], top[idx, 2]), (top[idx, 1], top[idx, 3]), 'r',
+             (top[idx, 2], top[idx, 4]), (top[idx, 3], top[idx, 5]), 'r',
+             (top[idx, 4], top[idx, 6]), (top[idx, 5], top[idx, 7]), 'r',
+             (top[idx, 6], top[idx, 0]), (top[idx, 7], top[idx, 1]), 'r',
+             (bases[idx, 0], top[idx, 0]), (bases[idx, 1], top[idx, 1]), 'r',
+             (bases[idx, 2], top[idx, 2]), (bases[idx, 3], top[idx, 3]), 'r',
+             (bases[idx, 4], top[idx, 4]), (bases[idx, 5], top[idx, 5]), 'r',
+             (bases[idx, 6], top[idx, 6]), (bases[idx, 7], top[idx, 7]), 'r',
+             ]
+    plt.plot(*lines)
+
     # plt.plot(xs, ys, color='deepskyblue', linewidth=3)
     # plt.scatter(x=boxes[idx, 0], y=boxes[idx, 1], s=40, color="y")
     # plt.scatter(x=boxes[idx, 2], y=boxes[idx, 3], s=40, color="y")

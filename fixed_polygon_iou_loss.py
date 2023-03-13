@@ -86,8 +86,8 @@ def c_poly_iou(poly1, poly2):
 
 	# Nx and Ny contain x and y intersection coordinates for each pair of line segments
 	D = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
-	Nx = ((x1 * y2 - x2 * y1) * (x3 - x4) - (x3 * y4 - x4 * y3) * (x1 - x2)) / D
-	Ny = ((x1 * y2 - x2 * y1) * (y3 - y4) - (x3 * y4 - x4 * y3) * (y1 - y2)) / D
+	Nx = ((x1 * y2 - x2 * y1) * (x3 - x4) - (x3 * y4 - x4 * y3) * (x1 - x2)) / (D + 1e-10)
+	Ny = ((x1 * y2 - x2 * y1) * (y3 - y4) - (x3 * y4 - x4 * y3) * (y1 - y2)) / (D + 1e-10)
 
 	# get points that intersect in valid range (Nx should be greater than exactly one of x1,x2 and exactly one of x3,x4)
 	s1 = torch.sign(Nx - x1)
@@ -172,7 +172,7 @@ def batch_clockify(polygons, clockwise=True):
 	return polygons
 
 
-def batch_torch_wn(pntss, polys, return_winding=False):
+def batch_torch_wn(pntss, polys, return_winding=False, sides=4):
 	device = polys.device
 	x0, y0 = torch.transpose(polys, 0, 2).transpose(-2, -1)  # polygon `from` coordinates
 	x1, y1 = torch.transpose(torch.roll(polys, -1, 1), 0, 2).transpose(-2, -1)  # polygon `to` coordinates
@@ -195,7 +195,7 @@ def batch_torch_wn(pntss, polys, return_winding=False):
 	# print(wn)
 	# print(torch.nonzero(wn))
 	# print('with pntss:', pntss)
-	out_ = torch.zeros((pntss.shape[0], 4, 2)).to(device)
+	out_ = torch.zeros((pntss.shape[0], sides, 2)).to(device)
 	idxs = torch.where(wn != 0)
 	out_[idxs] = pntss[idxs]
 
@@ -205,7 +205,40 @@ def batch_torch_wn(pntss, polys, return_winding=False):
 	return out_
 
 
-def batch_poly_iou(polys1, polys2):
+def batch_torch_wn_triangle(pntss, polys, return_winding=False):
+	device = polys.device
+	x0, y0 = torch.transpose(polys, 0, 2).transpose(-2, -1)  # polygon `from` coordinates
+	x1, y1 = torch.transpose(torch.roll(polys, -1, 1), 0, 2).transpose(-2, -1)  # polygon `to` coordinates
+
+	x, y = torch.transpose(pntss, 0, 2).transpose(-2, -1)  # point coordinates
+
+	y_y0 = y[:, :, None] - y0[:, None]
+	x_x0 = x[:, :, None] - x0[:, None]
+	diff_ = (x1 - x0)[:, None] * y_y0[:, :] - (y1 - y0)[:, None] * x_x0  # diff => einsum in original
+	chk1 = (y_y0 > 0.0)
+	chk2 = torch.lt(y[:, :, None], y1[:, None])  # pnts[:, 1][:, None], poly[1:, 1])
+	chk3 = torch.sign(diff_)
+	# print('chk1 is:\n', chk1)
+	# print('chk2 is:\n', chk2)
+	# print('chk3 is:\n', chk3)
+
+	pos = (chk1 & chk2 & (chk3 > 0)).sum(axis=2, dtype=int)
+	neg = (~chk1 & ~chk2 & (chk3 < 0)).sum(axis=2, dtype=int)
+	wn = pos - neg
+	# print(wn)
+	# print(torch.nonzero(wn))
+	# print('with pntss:', pntss)
+	out_ = torch.zeros((pntss.shape[0], 3, 2)).to(device)
+	idxs = torch.where(wn != 0)
+	out_[idxs] = pntss[idxs]
+
+	# out_ = pntss[torch.nonzero(wn)[:, 0]]
+	if return_winding:
+		return out_, wn
+	return out_
+
+
+def batch_poly_iou(polys1, polys2, sides=4):
 	device = polys1.device
 	b = polys1.shape[0]
 
@@ -248,8 +281,8 @@ def batch_poly_iou(polys1, polys2):
 	a2 = batch_poly_area(polys2)
 	# ai = torch.empty(a1.shape).to('cuda')
 
-	polys1_np_keep = batch_torch_wn(polys1, polys2)
-	polys2_np_keep = batch_torch_wn(polys2, polys1)
+	polys1_np_keep = batch_torch_wn(polys1, polys2, sides=sides)
+	polys2_np_keep = batch_torch_wn(polys2, polys1, sides=sides)
 
 	keep = torch.where(s_total.reshape(b, -1) != 0)
 
@@ -258,7 +291,7 @@ def batch_poly_iou(polys1, polys2):
 
 	Nxy = torch.cat((Nx[..., None], Ny[..., None]), dim=-1)
 
-	intersections = torch.zeros((b, 16, 2)).to(device)
+	intersections = torch.zeros((b, sides * sides, 2)).to(device)
 
 	intersections[keep] = Nxy[keep]
 
@@ -270,9 +303,9 @@ def batch_poly_iou(polys1, polys2):
 
 	union = union[torch.arange(i.shape[0])[:, None], i]
 
-	new_int = torch.zeros((b, 8, 2)).to(device)
+	new_int = torch.zeros((b, sides * 2, 2)).to(device)
 
-	new_int = union[:, 16:, :]
+	new_int = union[:, -sides * 2:, :]
 
 	comb = new_int.abs().mean(dim=-1)
 
@@ -287,7 +320,7 @@ def batch_poly_iou(polys1, polys2):
 
 	alt = new_int[cat]
 
-	alt = alt.unsqueeze(1).repeat(1, 8, 1).detach()
+	alt = alt.unsqueeze(1).repeat(1, sides * 2, 1).detach()
 
 	idxs = torch.where(comb == 0)
 
@@ -359,8 +392,8 @@ def batch_intersection(polys1, polys2):
 	# modified
 	# s_total[D < 1e-10] = 0
 
-	polys1_np_keep = batch_torch_wn(polys1, polys2)
-	polys2_np_keep = batch_torch_wn(polys2, polys1)
+	polys1_np_keep = batch_torch_wn_triangle(polys1, polys2)
+	polys2_np_keep = batch_torch_wn_triangle(polys2, polys1)
 
 	keep = torch.where(s_total.reshape(b, -1) != 0)
 
@@ -369,7 +402,7 @@ def batch_intersection(polys1, polys2):
 
 	Nxy = torch.cat((Nx[..., None], Ny[..., None]), dim=-1)
 
-	intersections = torch.zeros((b, 16, 2)).to(device)
+	intersections = torch.zeros((b, 9, 2)).to(device)
 
 	intersections[keep] = Nxy[keep]
 
@@ -381,9 +414,9 @@ def batch_intersection(polys1, polys2):
 
 	union = union[torch.arange(i.shape[0])[:, None], i]
 
-	new_int = torch.zeros((b, 8, 2)).to(device)
+	new_int = torch.zeros((b, 9, 2)).to(device)
 
-	new_int = union[:, 16:, :]
+	new_int = union[:, 6:, :]
 
 	comb = new_int.abs().mean(dim=-1)
 
@@ -398,7 +431,7 @@ def batch_intersection(polys1, polys2):
 
 	alt = new_int[cat]
 
-	alt = alt.unsqueeze(1).repeat(1, 8, 1).detach()
+	alt = alt.unsqueeze(1).repeat(1, 9, 1).detach()
 
 	idxs = torch.where(comb == 0)
 
@@ -432,8 +465,8 @@ def batch_unconvex_poly_iou(polys1, polys2):
 	return iou
 
 
-def batch_poly_diou_loss(polys1, polys2, a=1):
-	iou = batch_poly_iou(polys1, polys2)
+def batch_poly_diou_loss(polys1, polys2, a=1, sides=4):
+	iou = batch_poly_iou(polys1, polys2, sides=sides)
 	x_min = torch.min(torch.min(polys1[:, :, 0], dim=1)[0], torch.min(polys2[:, :, 0], dim=1)[0])
 	x_max = torch.max(torch.max(polys1[:, :, 0], dim=1)[0], torch.max(polys2[:, :, 0], dim=1)[0])
 	y_min = torch.min(torch.min(polys1[:, :, 1], dim=1)[0], torch.min(polys2[:, :, 1], dim=1)[0])

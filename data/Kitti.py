@@ -528,6 +528,7 @@ def load_dataset_detectron2(root="..", train=True, test=False):
                 if float(line[8]) > -1:
                     box_3d.append([float(x) for x in line[8:15]])
     box_3d = np.array(box_3d)
+    print(box_3d.shape)
     print(box_3d.min(axis=0))
     print(box_3d.max(axis=0))
     print("dic size: ", len(dic))
